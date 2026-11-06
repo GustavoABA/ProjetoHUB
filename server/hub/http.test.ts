@@ -9,6 +9,8 @@ import { handleHubRoute } from './http';
 import { JobStore, searchRemotive } from './jobs';
 import { BrowserManager } from './browser';
 import { ApplicationStore } from './applications';
+import { ProfileStore } from './profile';
+import { ModelRouter } from './router';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -110,6 +112,31 @@ it('prepares one application from a sourced vacancy and requires explicit approv
     expect((await (await fetch(base + '/api/hub/applications')).json())[0].status).toBe('approved');
     expect((await (await fetch(base + '/api/hub/jobs')).json())[0].applicationStatus).toBe('approved');
     expect(new ApplicationStore(join(dir, 'applications.json')).list()[0].status).toBe('approved');
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+it('analyzes a sourced vacancy and hides a stale score after profile changes', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
+  const agents = new HubStore(join(dir, 'state.json')); const jobs = new JobStore(join(dir, 'jobs.json'));
+  const profile = new ProfileStore(join(dir, 'profile.json'));
+  const router = new ModelRouter(join(dir, 'router.json'), async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"requirements":["Conhecimento em Excel."]}' } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }), { status: 200 }));
+  router.add({ provider: 'ollama', model: 'local-test', priority: 1 });
+  await searchRemotive(jobs, 'assistant', async () => new Response(JSON.stringify({ jobs: [{ id: 73, url: 'https://remotive.com/remote-jobs/support/assistant-73', title: 'Assistant', company_name: 'Acme', description: 'Conhecimento em Excel.' }] }), { status: 200 }));
+  const server = http.createServer((req, res) => { handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), agents, jobs, fetch, undefined, router, undefined, profile); });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const base = `http://127.0.0.1:${address.port}`;
+    const request = (path: string, method: string, body: unknown = {}) => fetch(base + path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await request('/api/hub/profile', 'PUT', { skills: ['Excel'], experience: [], education: [] })).status).toBe(200);
+    expect((await request('/api/hub/profile/confirm', 'POST')).status).toBe(200);
+    const jobId = jobs.list()[0].id;
+    expect((await request(`/api/hub/jobs/${jobId}/analyze`, 'POST')).status).toBe(200);
+    expect((await (await fetch(base + '/api/hub/jobs')).json())[0].compatibility).toBe(100);
+    await request('/api/hub/profile', 'PUT', { skills: ['Power BI'], experience: [], education: [] });
+    const stale = (await (await fetch(base + '/api/hub/jobs')).json())[0];
+    expect(stale.compatibility).toBeNull();
+    expect(stale.justification).toContain('desatualizada');
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 

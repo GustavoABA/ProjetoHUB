@@ -82,7 +82,7 @@ export class ModelRouter {
       else if (key) headers.Authorization = `Bearer ${key}`;
       if (model.provider === 'gemini') headers['x-goog-api-client'] = 'projecthub/0.1';
       try {
-        const response = await this.fetcher(endpoints[model.provider], { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(60_000) });
+        const response = await this.fetcher(endpoints[model.provider], { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(model.provider === 'ollama' ? 180_000 : 60_000) });
         if (!response.ok) {
           this.state.lastError = `${model.provider}: HTTP ${response.status}`; this.save();
           if (response.status === 429 || response.status >= 500) continue;

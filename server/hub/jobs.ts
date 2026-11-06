@@ -18,6 +18,9 @@ export interface JobListing {
   discoveredAt: string;
   compatibility: number | null;
   justification: string;
+  analysisModel?: string;
+  analyzedAt?: string;
+  profileRevision?: string;
   applicationStatus: 'not_started';
 }
 interface Attempt { at: string; ok: boolean }
@@ -73,6 +76,18 @@ export class JobStore {
     } else this.state = { version: 1, jobs: [], attempts: [] };
   }
   list(): JobListing[] { return structuredClone(this.state.jobs); }
+  analyzed(id: string, result: { requirements: string[]; compatibility: number | null; justification: string; analysisModel: string; profileRevision?: string }): JobListing {
+    const job = this.state.jobs.find((entry) => entry.id === id);
+    if (!job) throw new Error('Vaga não encontrada');
+    job.requirements = result.requirements;
+    job.compatibility = result.compatibility;
+    job.justification = result.justification;
+    job.analysisModel = result.analysisModel;
+    job.analyzedAt = new Date().toISOString();
+    if (result.profileRevision) job.profileRevision = result.profileRevision;
+    else delete job.profileRevision;
+    this.save(); return structuredClone(job);
+  }
   schedule(): JobSchedule | undefined { return this.state.schedule && structuredClone(this.state.schedule); }
   configure(input: { query: string; intervalHours: number; enabled: boolean }, now: Date = new Date()): JobSchedule {
     const query = input.query?.trim();

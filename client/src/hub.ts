@@ -2,7 +2,8 @@ type Agent = { id: string; name: string; objective: string; parentId?: string; c
 type Task = { id: string; agentId: string; instruction: string; status: string; error?: string };
 type Session = { name: string; sessionId: string; account: string; provider: string };
 type Source = { label: string; path: string; provider: string };
-type Job = { id: string; title: string; company: string; location: string; source: string; originalUrl: string; salary?: string; compatibility: number | null; applicationStatus: string };
+type Job = { id: string; title: string; company: string; location: string; source: string; originalUrl: string; salary?: string; compatibility: number | null; justification: string; requirements: string[]; analysisModel?: string; analyzedAt?: string; applicationStatus: string };
+type Profile = { revision: string; skills: string[]; experience: string[]; education: string[]; confirmedAt?: string };
 type Schedule = { query?: string; intervalHours?: number; enabled: boolean; nextRunAt?: string; lastError?: string };
 type BrowserStatus = { running: boolean; headless: boolean; manual: boolean; pages: { id: string; url: string }[] };
 type RouterStatus = { models: { id: string; provider: string; model: string; priority: number; enabled: boolean; available: boolean }[]; usage: { inputTokens: number; outputTokens: number; requests: number }; lastError?: string };
@@ -15,7 +16,7 @@ const css = `
 #projecthub-panel{position:fixed;inset:5vh 5vw;z-index:100;background:#171a27;color:#f5f3ff;border:3px solid #a697e2;box-shadow:0 15px 60px #000b;padding:20px;overflow:auto;font:16px system-ui,sans-serif}
 #projecthub-panel[hidden]{display:none}#projecthub-panel h2{font:600 25px 'Pixelify Sans',sans-serif;margin:0 0 14px}
 #projecthub-panel form{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0 22px;align-items:end}#projecthub-panel label{display:grid;gap:4px;min-width:170px;flex:1}
-#projecthub-panel input,#projecthub-panel select{background:#282d40;color:white;border:1px solid #717899;padding:9px;font:inherit}
+#projecthub-panel input,#projecthub-panel select,#projecthub-panel textarea{background:#282d40;color:white;border:1px solid #717899;padding:9px;font:inherit}
 #projecthub-panel button{background:#6655ad;color:white;border:1px solid #a697e2;padding:9px 12px;cursor:pointer;font:inherit}
 #projecthub-panel ul{padding-left:22px}#projecthub-panel li{margin:7px 0}#projecthub-panel small{color:#b9c2d9}
 #projecthub-panel .hub-head{display:flex;justify-content:space-between;align-items:center}#projecthub-message{min-height:1.4em;color:#ffe4a0}
@@ -37,6 +38,9 @@ export function mountHubPanel(): void {
     <h3>Criar agente</h3><form id="hub-agent-form"><label>Nome<input name="name" maxlength="100" required></label><label>Objetivo<input name="objective" maxlength="2000" required></label><label>Sessão Codex existente (opcional)<select name="session"><option value="">Sem vínculo</option></select></label><label>Subagente de (opcional)<select name="parent"><option value="">Agente principal</option></select></label><button>Criar agente</button></form>
     <h3>Nova tarefa</h3><form id="hub-task-form"><label>Agente<select name="agent" required></select></label><label>Instrução<input name="instruction" maxlength="10000" required></label><button>Criar tarefa</button></form>
     <h3>Perguntas pendentes</h3><form id="hub-question-form"><label>Tarefa<select name="task" required></select></label><label>Pergunta<input name="text" maxlength="2000" required></label><label>Candidatura (opcional)<select name="applicationId"><option value="">Sem candidatura</option></select></label><button>Registrar pergunta</button></form><ul id="hub-questions"></ul>
+    <h3>Perfil profissional</h3><p>Informe apenas dados verdadeiros. Cada linha é uma competência, experiência ou formação. Após editar, confirme novamente o perfil para permitir a pontuação das vagas.</p>
+    <form id="hub-profile-form"><label>Competências<textarea name="skills" rows="4" placeholder="Excel&#10;Atendimento"></textarea></label><label>Experiência<textarea name="experience" rows="4"></textarea></label><label>Formação<textarea name="education" rows="4"></textarea></label><button>Salvar perfil</button></form>
+    <button type="button" data-confirm-profile>Confirmo que estes dados são meus e estão corretos</button><p id="hub-profile-status"></p>
     <h3>Vagas remotas</h3><form id="hub-job-form"><label>Pesquisar na Remotive<input name="query" maxlength="100" required placeholder="Ex.: assistente, suporte, júnior"></label><button>Buscar vagas</button></form>
     <form id="hub-schedule-form"><label>Pesquisa automática<input name="query" maxlength="100" required placeholder="Termo de pesquisa"></label><label>Intervalo<select name="interval"><option value="6">6 horas</option><option value="12">12 horas</option><option value="24">24 horas</option></select></label><label><span>Ativar</span><input name="enabled" type="checkbox"></label><button>Salvar agenda</button></form><p id="hub-schedule-status"></p>
     <p>Fonte: Remotive. A consulta pública tem limite de quatro tentativas por dia; as vagas exibidas levam ao anúncio original.</p>
@@ -54,6 +58,7 @@ export function mountHubPanel(): void {
   const agentForm = panel.querySelector('#hub-agent-form') as HTMLFormElement;
   const taskForm = panel.querySelector('#hub-task-form') as HTMLFormElement;
   const questionForm = panel.querySelector('#hub-question-form') as HTMLFormElement;
+  const profileForm = panel.querySelector('#hub-profile-form') as HTMLFormElement;
   const applicationForm = panel.querySelector('#hub-application-form') as HTMLFormElement;
   const jobForm = panel.querySelector('#hub-job-form') as HTMLFormElement;
   const scheduleForm = panel.querySelector('#hub-schedule-form') as HTMLFormElement;
@@ -70,9 +75,10 @@ export function mountHubPanel(): void {
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
 
   async function refresh(): Promise<void> {
-    const [agents, tasks, questions, jobs, applications, schedule, browser, router, snapshot, health] = await Promise.all([
+    const [agents, tasks, questions, profile, jobs, applications, schedule, browser, router, snapshot, health] = await Promise.all([
       api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'),
       api<Question[]>('/api/hub/questions'),
+      api<Profile>('/api/hub/profile'),
       api<Job[]>('/api/hub/jobs'),
       api<Application[]>('/api/hub/applications'),
       api<Schedule>('/api/hub/jobs/schedule'),
@@ -80,6 +86,12 @@ export function mountHubPanel(): void {
       api<RouterStatus>('/api/hub/router'),
       api<{ agents: Session[] }>('/api/snapshot'), api<{ sources: Source[] }>('/api/health'),
     ]);
+    if (!profileForm.contains(document.activeElement)) {
+      for (const key of ['skills', 'experience', 'education'] as const) (profileForm.elements.namedItem(key) as HTMLTextAreaElement).value = profile[key].join('\n');
+    }
+    (panel.querySelector('#hub-profile-status') as HTMLElement).textContent = profile.confirmedAt
+      ? `Perfil confirmado em ${new Date(profile.confirmedAt).toLocaleString('pt-BR')}. A pontuação compara apenas termos explícitos do anúncio.`
+      : 'Perfil ainda não confirmado. Nenhuma compatibilidade será pontuada.';
     (panel.querySelector('#hub-router-status') as HTMLElement).textContent = `${router.usage.requests} resposta(s) · ${router.usage.inputTokens} tokens de entrada · ${router.usage.outputTokens} tokens de saída · custo não calculado${router.lastError ? ` · Última falha: ${router.lastError}` : ''}`;
     const modelList = panel.querySelector('#hub-models')!; modelList.replaceChildren();
     for (const model of router.models) {
@@ -166,8 +178,15 @@ export function mountHubPanel(): void {
       const link = document.createElement('a'); link.href = job.originalUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
       link.textContent = `${job.title} — ${job.company}`; link.style.color = '#c9bdff'; li.append(link);
       const app = applications.find((candidate) => candidate.jobId === job.id);
-      const detail = document.createElement('small'); detail.textContent = ` · ${job.location} · ${job.salary || 'salário não informado'} · fonte: ${job.source} · compatibilidade não avaliada · ${app ? `candidatura ${app.status}` : 'sem candidatura'}`;
-      li.append(detail); jobList.append(li);
+      const detail = document.createElement('small'); detail.textContent = ` · ${job.location} · ${job.salary || 'salário não informado'} · fonte: ${job.source} · ${job.compatibility === null ? 'compatibilidade indeterminada' : `correspondência textual ${job.compatibility}%`} · ${app ? `candidatura ${app.status}` : 'sem candidatura'}`;
+      const analyze = document.createElement('button'); analyze.textContent = 'Analisar anúncio';
+      analyze.onclick = () => { message.textContent = 'Analisando anúncio com o modelo configurado...'; void api(`/api/hub/jobs/${job.id}/analyze`, {}).then(refresh).catch(showError); };
+      li.append(detail, analyze);
+      if (job.analyzedAt) {
+        const evidence = document.createElement('small'); evidence.textContent = ` ${job.justification} Requisitos encontrados: ${job.requirements.length ? job.requirements.join(' | ') : 'nenhum requisito explícito'}. Modelo: ${job.analysisModel ?? 'não informado'}.`;
+        li.append(evidence);
+      }
+      jobList.append(li);
     }
     const applicationList = panel.querySelector('#hub-applications')!; applicationList.replaceChildren();
     for (const app of applications.slice().reverse().slice(0, 100)) {
@@ -196,7 +215,7 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
-    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
@@ -208,6 +227,11 @@ export function mountHubPanel(): void {
   questionForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(questionForm);
     void api('/api/hub/questions', { taskId: data.get('task'), text: data.get('text'), ...(data.get('applicationId') ? { applicationId: data.get('applicationId') } : {}) })
       .then(() => { questionForm.reset(); message.textContent = 'Pergunta pendente registrada.'; return refresh(); }).catch(showError); };
+  profileForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(profileForm);
+    const lines = (key: string) => String(data.get(key) ?? '').split(/\r?\n/).map((v) => v.trim()).filter(Boolean);
+    void api('/api/hub/profile', { skills: lines('skills'), experience: lines('experience'), education: lines('education') }, 'PUT')
+      .then(() => { message.textContent = 'Perfil salvo. Confirme os dados antes da análise de compatibilidade.'; return refresh(); }).catch(showError); };
+  (panel.querySelector('[data-confirm-profile]') as HTMLButtonElement).onclick = () => void api('/api/hub/profile/confirm', {}).then(() => { message.textContent = 'Perfil confirmado.'; return refresh(); }).catch(showError);
   function applicationListContainsActive(): boolean { return Boolean(panel.querySelector('#hub-applications')?.contains(document.activeElement)); }
   applicationForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(applicationForm);
     void api('/api/hub/applications', { jobId: data.get('job') })

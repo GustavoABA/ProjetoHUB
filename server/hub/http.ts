@@ -5,6 +5,8 @@ import { searchRemotive, type JobStore } from './jobs';
 import type { BrowserManager } from './browser';
 import type { ModelRouter, Provider, Message } from './router';
 import type { ApplicationStore } from './applications';
+import type { ProfileStore } from './profile';
+import { analyzeJob } from './analysis';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Corpo JSON inválido');
@@ -19,7 +21,7 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /** Routes are mounted only on the local server, after the normal Host/Origin guard. */
-export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore): boolean {
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore): boolean {
   const path = url.pathname;
   if (!path.startsWith('/api/hub/')) return false;
   const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
@@ -60,6 +62,22 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
         ...(body.applicationId === undefined ? {} : { applicationId: string(body.applicationId, 'candidatura') }),
         ...(body.deadline === undefined ? {} : { deadline: string(body.deadline, 'prazo') }) }));
     }).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  if (path === '/api/hub/profile') {
+    if (!profile) sendJson(res, 503, { error: 'Perfil indisponível' });
+    else if (req.method === 'GET') sendJson(res, 200, profile.get());
+    else if (req.method === 'PUT') void readJson(req).then((raw) => {
+      const body = record(raw);
+      sendJson(res, 200, profile.update({ skills: body.skills as string[], experience: body.experience as string[], education: body.education as string[] }));
+    }).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  if (path === '/api/hub/profile/confirm') {
+    if (!profile) sendJson(res, 503, { error: 'Perfil indisponível' });
+    else if (req.method === 'POST') { req.resume(); try { sendJson(res, 200, profile.confirm()); } catch (error) { fail(res, error); } }
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
@@ -143,8 +161,18 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     if (req.method !== 'GET') sendJson(res, 405, { error: 'Método não permitido' });
     else {
       const byJob = new Map(applications?.list().map((app) => [app.jobId, app.status]) ?? []);
-      sendJson(res, 200, jobs?.list().map((job) => ({ ...job, applicationStatus: byJob.get(job.id) ?? job.applicationStatus })) ?? []);
+      const revision = profile?.get();
+      sendJson(res, 200, jobs?.list().map((job) => ({ ...job, compatibility: job.profileRevision && revision?.confirmedAt && job.profileRevision === revision.revision ? job.compatibility : null,
+        justification: job.profileRevision && (!revision?.confirmedAt || job.profileRevision !== revision.revision) ? 'Perfil alterado: a compatibilidade anterior está desatualizada. Reanalise a vaga.' : job.justification,
+        applicationStatus: byJob.get(job.id) ?? job.applicationStatus })) ?? []);
     }
+    return true;
+  }
+  const jobAction = /^\/api\/hub\/jobs\/([0-9a-f-]+)\/analyze$/.exec(path);
+  if (jobAction) {
+    if (!jobs || !profile || !router) sendJson(res, 503, { error: 'Análise de vagas indisponível' });
+    else if (req.method === 'POST') { req.resume(); void analyzeJob(jobs, profile, router, jobAction[1]).then((result) => sendJson(res, 200, result)).catch((error) => fail(res, error)); }
+    else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
   if (path === '/api/hub/jobs/schedule') {
