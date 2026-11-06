@@ -66,6 +66,8 @@ import { BrowserManager } from './hub/browser';
 import { ModelRouter } from './hub/router';
 import { ApplicationStore } from './hub/applications';
 import { ProfileStore } from './hub/profile';
+import { WhatsAppStore } from './hub/whatsapp';
+import { handleWhatsAppWebhook } from './hub/whatsapp-http';
 
 const config = loadConfig();
 const startedAt = Date.now();
@@ -89,6 +91,7 @@ const browserManager = new BrowserManager({ profileDir: join(config.dataDir, 'pr
 const modelRouter = new ModelRouter(join(config.dataDir, 'projecthub', 'router.json'));
 const applicationStore = new ApplicationStore(join(config.dataDir, 'projecthub', 'applications.json'));
 const profileStore = new ProfileStore(join(config.dataDir, 'projecthub', 'profile.json'));
+const whatsAppStore = new WhatsAppStore(join(config.dataDir, 'projecthub', 'whatsapp.json'));
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
@@ -442,7 +445,7 @@ server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
-    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore) && !api(req, res, url)) fallback(req, res, url);
+    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore) && !api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(tr('Erro ao responder {0} {1}: {2}', [req.method, url.pathname, errMsg(err)]));
     if (!res.headersSent) sendJson(res, 500, { error: tr('erro interno') });
@@ -455,6 +458,15 @@ server.on('error', (err: NodeJS.ErrnoException) => {
   else log.error(tr('Erro no servidor HTTP: {0}', [errMsg(err)]));
   process.exit(1);
 });
+
+const webhookPort = Number(process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT ?? 0);
+let whatsAppWebhookServer: http.Server | undefined;
+if (Number.isInteger(webhookPort) && webhookPort > 0 && webhookPort <= 65_535) {
+  const webhookBind = process.env.PROJECTHUB_WHATSAPP_WEBHOOK_BIND === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1';
+  whatsAppWebhookServer = http.createServer((req, res) => handleWhatsAppWebhook(req, res, whatsAppStore, projectHub));
+  whatsAppWebhookServer.on('error', (error) => log.warn(`Webhook WhatsApp indisponível: ${errMsg(error)}`));
+  whatsAppWebhookServer.listen(webhookPort, webhookBind, () => log.info(`Webhook WhatsApp aguardando em ${webhookBind}:${webhookPort}; autenticação obrigatória.`));
+}
 
 /**
  * Porta remota (celular na rede local): o mesmo app, mas toda requisição passa pelo login (http/remote.ts) antes da
@@ -592,6 +604,7 @@ function shutdown(signal: string): void {
   names.flush();
   void closeVite?.();
   remoteListener?.close();
+  whatsAppWebhookServer?.close();
   void browserManager.stop().catch((error) => log.warn(tr('Falha ao fechar navegador: {0}', [errMsg(error)]))).finally(() => {
     server.close(() => process.exit(0));
   });

@@ -33,6 +33,7 @@ export interface HubQuestion {
   deadline?: string;
   answer?: string;
   answeredAt?: string;
+  sourceMessageId?: string;
   previousTaskStatus: TaskStatus;
 }
 interface State { version: 1; agents: HubAgent[]; tasks: HubTask[]; questions?: HubQuestion[] }
@@ -178,14 +179,16 @@ export class HubStore {
     this.save(); return structuredClone(question);
   }
 
-  answerQuestion(id: string, answerInput: string): HubQuestion {
+  answerQuestion(id: string, answerInput: string, sourceMessageId?: string): HubQuestion {
     const question = this.state.questions!.find((q) => q.id === id);
     if (!question) throw new Error('Pergunta não encontrada');
+    if (question.state === 'answered' && sourceMessageId && question.sourceMessageId === sourceMessageId) return structuredClone(question);
     if (question.state !== 'pending') throw new Error('Pergunta já respondida');
     const answer = required(answerInput, 'resposta', 5000);
     const task = this.state.tasks.find((t) => t.id === question.taskId);
     if (!task || task.status !== 'waiting_input') throw new Error('Tarefa relacionada não está aguardando resposta');
     question.state = 'answered'; question.answer = answer; question.answeredAt = new Date().toISOString();
+    if (sourceMessageId) question.sourceMessageId = sourceMessageId;
     task.status = question.previousTaskStatus; task.updatedAt = question.answeredAt;
     this.save(); return structuredClone(question);
   }

@@ -11,6 +11,7 @@ import { BrowserManager } from './browser';
 import { ApplicationStore } from './applications';
 import { ProfileStore } from './profile';
 import { ModelRouter } from './router';
+import { WhatsAppStore } from './whatsapp';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -137,6 +138,26 @@ it('analyzes a sourced vacancy and hides a stale score after profile changes', a
     const stale = (await (await fetch(base + '/api/hub/jobs')).json())[0];
     expect(stale.compatibility).toBeNull();
     expect(stale.justification).toContain('desatualizada');
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+it('configures logical WhatsApp numbers and shows a webhook token only once', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
+  const agents = new HubStore(join(dir, 'state.json'));
+  const whatsapp = new WhatsAppStore(join(dir, 'whatsapp.json'));
+  const server = http.createServer((req, res) => { handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), agents, undefined, fetch, undefined, undefined, undefined, undefined, whatsapp); });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const base = `http://127.0.0.1:${address.port}`;
+    const put = await fetch(base + '/api/hub/whatsapp', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mainNumber: '5511999999999', secondaryNumber: '5511888888888' }) });
+    expect(put.status).toBe(200);
+    const tokenResponse = await fetch(base + '/api/hub/whatsapp/webhook-token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const { token } = await tokenResponse.json();
+    expect(whatsapp.authenticateWebhook(token)).toBe(true);
+    const status = await (await fetch(base + '/api/hub/whatsapp')).json();
+    expect(status).toMatchObject({ instance: 'procura-de-emprego', mainNumber: '5511999999999', webhookTokenConfigured: true });
+    expect(JSON.stringify(status)).not.toContain(token);
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 

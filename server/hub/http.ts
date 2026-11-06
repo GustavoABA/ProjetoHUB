@@ -7,6 +7,7 @@ import type { ModelRouter, Provider, Message } from './router';
 import type { ApplicationStore } from './applications';
 import type { ProfileStore } from './profile';
 import { analyzeJob } from './analysis';
+import type { WhatsAppStore } from './whatsapp';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Corpo JSON inválido');
@@ -21,12 +22,41 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /** Routes are mounted only on the local server, after the normal Host/Origin guard. */
-export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore): boolean {
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore): boolean {
   const path = url.pathname;
   if (!path.startsWith('/api/hub/')) return false;
   const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
   if (remote !== '::1' && !/^127\./.test(remote ?? '')) {
     sendJson(res, 403, { error: 'Acesso permitido apenas neste computador' });
+    return true;
+  }
+  if (path === '/api/hub/whatsapp') {
+    if (!whatsapp) sendJson(res, 503, { error: 'WhatsApp indisponível' });
+    else if (req.method === 'GET') sendJson(res, 200, { ...whatsapp.status(), apiKeyConfigured: Boolean(process.env.EVOLUTION_API_KEY), webhookPort: process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT || null });
+    else if (req.method === 'PUT') void readJson(req).then((raw) => {
+      const body = record(raw);
+      sendJson(res, 200, whatsapp.configure({ mainNumber: string(body.mainNumber, 'número principal'), secondaryNumber: string(body.secondaryNumber, 'número secundário') }));
+    }).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  if (path === '/api/hub/whatsapp/webhook-token') {
+    if (!whatsapp) sendJson(res, 503, { error: 'WhatsApp indisponível' });
+    else if (req.method === 'POST') { req.resume(); sendJson(res, 200, { token: whatsapp.rotateWebhookToken() }); }
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  if (path === '/api/hub/whatsapp/diagnostics') {
+    if (!whatsapp) sendJson(res, 503, { error: 'WhatsApp indisponível' });
+    else if (req.method === 'GET') void whatsapp.diagnose(process.env.EVOLUTION_API_KEY ?? '', fetcher).then((result) => sendJson(res, 200, result)).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  const sendQuestionAction = /^\/api\/hub\/whatsapp\/questions\/([0-9a-f-]+)\/send$/.exec(path);
+  if (sendQuestionAction) {
+    if (!whatsapp) sendJson(res, 503, { error: 'WhatsApp indisponível' });
+    else if (req.method === 'POST') { req.resume(); void whatsapp.sendQuestion(sendQuestionAction[1], store, process.env.EVOLUTION_API_KEY ?? '', fetcher).then((result) => sendJson(res, result.state === 'accepted' ? 200 : 502, result)).catch((error) => fail(res, error)); }
+    else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
   if (path === '/api/hub/router') {

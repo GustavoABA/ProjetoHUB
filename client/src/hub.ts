@@ -4,6 +4,7 @@ type Session = { name: string; sessionId: string; account: string; provider: str
 type Source = { label: string; path: string; provider: string };
 type Job = { id: string; title: string; company: string; location: string; source: string; originalUrl: string; salary?: string; compatibility: number | null; justification: string; requirements: string[]; analysisModel?: string; analyzedAt?: string; applicationStatus: string };
 type Profile = { revision: string; skills: string[]; experience: string[]; education: string[]; confirmedAt?: string };
+type WhatsAppStatus = { instance: string; mainNumber?: string; secondaryNumber?: string; webhookTokenConfigured: boolean; apiKeyConfigured: boolean; webhookPort?: string | null; outbound: { questionId: string; state: string; error?: string }[] };
 type Schedule = { query?: string; intervalHours?: number; enabled: boolean; nextRunAt?: string; lastError?: string };
 type BrowserStatus = { running: boolean; headless: boolean; manual: boolean; pages: { id: string; url: string }[] };
 type RouterStatus = { models: { id: string; provider: string; model: string; priority: number; enabled: boolean; available: boolean }[]; usage: { inputTokens: number; outputTokens: number; requests: number }; lastError?: string };
@@ -38,6 +39,10 @@ export function mountHubPanel(): void {
     <h3>Criar agente</h3><form id="hub-agent-form"><label>Nome<input name="name" maxlength="100" required></label><label>Objetivo<input name="objective" maxlength="2000" required></label><label>Sessão Codex existente (opcional)<select name="session"><option value="">Sem vínculo</option></select></label><label>Subagente de (opcional)<select name="parent"><option value="">Agente principal</option></select></label><button>Criar agente</button></form>
     <h3>Nova tarefa</h3><form id="hub-task-form"><label>Agente<select name="agent" required></select></label><label>Instrução<input name="instruction" maxlength="10000" required></label><button>Criar tarefa</button></form>
     <h3>Perguntas pendentes</h3><form id="hub-question-form"><label>Tarefa<select name="task" required></select></label><label>Pergunta<input name="text" maxlength="2000" required></label><label>Candidatura (opcional)<select name="applicationId"><option value="">Sem candidatura</option></select></label><button>Registrar pergunta</button></form><ul id="hub-questions"></ul>
+    <h3>WhatsApp · Evolution API</h3><p>A instância lógica é procura-de-emprego. Configure os números com DDI e DDD. Nenhuma mensagem será enviada antes de acionar o envio de uma pergunta.</p>
+    <form id="hub-whatsapp-form"><label>Número principal (destino)<input name="mainNumber" inputmode="numeric" pattern="[0-9]{10,15}" required></label><label>Número secundário (instância)<input name="secondaryNumber" inputmode="numeric" pattern="[0-9]{10,15}" required></label><button>Salvar números</button></form>
+    <p id="hub-whatsapp-status"></p><button type="button" data-whatsapp-diagnostics>Verificar Evolution API</button> <button type="button" data-whatsapp-token>Gerar novo token do webhook</button><p id="hub-whatsapp-diagnostics"></p><p id="hub-whatsapp-token"></p>
+    <p>Para parear: <a href="http://127.0.0.1:8080/manager" target="_blank" rel="noopener noreferrer" style="color:#c9bdff">abrir Evolution Manager</a>, criar somente a instância <strong>procura-de-emprego</strong> e ler o QR com o número secundário. No webhook dessa instância, use o evento MESSAGES_UPSERT e o cabeçalho X-ProjectHUB-Token com o token gerado acima. O listener precisa estar acessível à Evolution API.</p>
     <h3>Perfil profissional</h3><p>Informe apenas dados verdadeiros. Cada linha é uma competência, experiência ou formação. Após editar, confirme novamente o perfil para permitir a pontuação das vagas.</p>
     <form id="hub-profile-form"><label>Competências<textarea name="skills" rows="4" placeholder="Excel&#10;Atendimento"></textarea></label><label>Experiência<textarea name="experience" rows="4"></textarea></label><label>Formação<textarea name="education" rows="4"></textarea></label><button>Salvar perfil</button></form>
     <button type="button" data-confirm-profile>Confirmo que estes dados são meus e estão corretos</button><p id="hub-profile-status"></p>
@@ -58,6 +63,7 @@ export function mountHubPanel(): void {
   const agentForm = panel.querySelector('#hub-agent-form') as HTMLFormElement;
   const taskForm = panel.querySelector('#hub-task-form') as HTMLFormElement;
   const questionForm = panel.querySelector('#hub-question-form') as HTMLFormElement;
+  const whatsappForm = panel.querySelector('#hub-whatsapp-form') as HTMLFormElement;
   const profileForm = panel.querySelector('#hub-profile-form') as HTMLFormElement;
   const applicationForm = panel.querySelector('#hub-application-form') as HTMLFormElement;
   const jobForm = panel.querySelector('#hub-job-form') as HTMLFormElement;
@@ -75,9 +81,10 @@ export function mountHubPanel(): void {
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
 
   async function refresh(): Promise<void> {
-    const [agents, tasks, questions, profile, jobs, applications, schedule, browser, router, snapshot, health] = await Promise.all([
+    const [agents, tasks, questions, whatsapp, profile, jobs, applications, schedule, browser, router, snapshot, health] = await Promise.all([
       api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'),
       api<Question[]>('/api/hub/questions'),
+      api<WhatsAppStatus>('/api/hub/whatsapp'),
       api<Profile>('/api/hub/profile'),
       api<Job[]>('/api/hub/jobs'),
       api<Application[]>('/api/hub/applications'),
@@ -86,6 +93,11 @@ export function mountHubPanel(): void {
       api<RouterStatus>('/api/hub/router'),
       api<{ agents: Session[] }>('/api/snapshot'), api<{ sources: Source[] }>('/api/health'),
     ]);
+    if (!whatsappForm.contains(document.activeElement)) {
+      (whatsappForm.elements.namedItem('mainNumber') as HTMLInputElement).value = whatsapp.mainNumber ?? '';
+      (whatsappForm.elements.namedItem('secondaryNumber') as HTMLInputElement).value = whatsapp.secondaryNumber ?? '';
+    }
+    (panel.querySelector('#hub-whatsapp-status') as HTMLElement).textContent = `${whatsapp.instance} · ${whatsapp.mainNumber && whatsapp.secondaryNumber ? 'números configurados' : 'números pendentes'} · ${whatsapp.apiKeyConfigured ? 'chave Evolution detectada' : 'chave Evolution não configurada'} · ${whatsapp.webhookTokenConfigured ? 'token do webhook gerado' : 'token do webhook pendente'} · ${whatsapp.webhookPort ? `porta do webhook ${whatsapp.webhookPort}` : 'listener do webhook desligado'}.`;
     if (!profileForm.contains(document.activeElement)) {
       for (const key of ['skills', 'experience', 'education'] as const) (profileForm.elements.namedItem(key) as HTMLTextAreaElement).value = profile[key].join('\n');
     }
@@ -167,6 +179,13 @@ export function mountHubPanel(): void {
         const button = document.createElement('button'); button.textContent = 'Responder'; form.append(input, button);
         form.onsubmit = (event) => { event.preventDefault(); void api(`/api/hub/questions/${question.id}/answer`, { answer: input.value }).then(refresh).catch(showError); };
         li.append(form);
+        const outbound = whatsapp.outbound.find((item) => item.questionId === question.id);
+        if (outbound) { const status = document.createElement('small'); status.textContent = ` · WhatsApp: ${outbound.state === 'accepted' ? 'aceito pela Evolution; entrega não confirmada' : outbound.state === 'uncertain' ? 'resultado incerto; revisar antes de reenviar' : outbound.state}`; li.append(status); }
+        else if (whatsapp.mainNumber && whatsapp.secondaryNumber && whatsapp.apiKeyConfigured) {
+          const send = document.createElement('button'); send.textContent = 'Enviar pergunta pelo WhatsApp';
+          send.onclick = () => void api(`/api/hub/whatsapp/questions/${question.id}/send`, {}).then(() => { message.textContent = 'Mensagem aceita pela Evolution API; entrega no WhatsApp ainda não confirmada.'; return refresh(); }).catch(showError);
+          li.append(send);
+        }
       }
       questionList.append(li);
     }
@@ -215,7 +234,7 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
-    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
@@ -227,6 +246,20 @@ export function mountHubPanel(): void {
   questionForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(questionForm);
     void api('/api/hub/questions', { taskId: data.get('task'), text: data.get('text'), ...(data.get('applicationId') ? { applicationId: data.get('applicationId') } : {}) })
       .then(() => { questionForm.reset(); message.textContent = 'Pergunta pendente registrada.'; return refresh(); }).catch(showError); };
+  whatsappForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(whatsappForm);
+    void api('/api/hub/whatsapp', { mainNumber: data.get('mainNumber'), secondaryNumber: data.get('secondaryNumber') }, 'PUT')
+      .then(() => { message.textContent = 'Números do WhatsApp salvos neste computador.'; return refresh(); }).catch(showError); };
+  (panel.querySelector('[data-whatsapp-token]') as HTMLButtonElement).onclick = () => void api<{ token: string }>('/api/hub/whatsapp/webhook-token', {}).then(({ token }) => {
+    const target = panel.querySelector('#hub-whatsapp-token') as HTMLElement; target.textContent = `Token exibido uma vez: ${token}`;
+    return refresh();
+  }).catch(showError);
+  (panel.querySelector('[data-whatsapp-diagnostics]') as HTMLButtonElement).onclick = () => void api<{ reachable: boolean; version?: string; instanceExists: boolean | null; connectionStatus?: string; error?: string }>('/api/hub/whatsapp/diagnostics').then((result) => {
+    (panel.querySelector('#hub-whatsapp-diagnostics') as HTMLElement).textContent = result.reachable
+      ? `Evolution ${result.version ?? 'versão desconhecida'} · instância ${result.instanceExists === null ? 'não verificada' : result.instanceExists ? `encontrada (${result.connectionStatus ?? 'estado desconhecido'})` : 'ainda não criada'}${result.error ? ` · ${result.error}` : ''}`
+      : result.error ?? 'Evolution indisponível';
+  }).catch(showError);
+  const originalClose = (panel.querySelector('[data-close]') as HTMLButtonElement).onclick;
+  (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = (event) => { (panel.querySelector('#hub-whatsapp-token') as HTMLElement).textContent = ''; originalClose?.call(panel.querySelector('[data-close]') as HTMLButtonElement, event); };
   profileForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(profileForm);
     const lines = (key: string) => String(data.get(key) ?? '').split(/\r?\n/).map((v) => v.trim()).filter(Boolean);
     void api('/api/hub/profile', { skills: lines('skills'), experience: lines('experience'), education: lines('education') }, 'PUT')

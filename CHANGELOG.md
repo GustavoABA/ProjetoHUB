@@ -22,6 +22,7 @@ do meio (0.**3**.0).
 - Rascunhos de candidatura vinculados a vagas reais, deduplicação, respostas confirmadas e aprovação explícita sem declarar envio.
 - Edição, pausa, retomada e encerramento de agentes; tarefas não entregues são canceladas ao encerrar.
 - Perfil profissional confirmado e análise de requisitos por trechos literais do anúncio, com pontuação de correspondência textual quando há perfil confirmado.
+- Canal WhatsApp local com instância lógica própria, webhook autenticado, validação de remetente, deduplicação, histórico de saída e retomada da tarefa relacionada.
 
 ## [1.0.3] - 2026-10-16
 
