@@ -12,6 +12,7 @@ import type { AdminKeyStore } from './mcp';
 import type { NgrokManager } from './ngrok';
 import type { ConnectionSession, SessionPolicy } from './connection-session';
 import type { ConnectionPublisher } from './connection-publisher';
+import type { BackupManager } from './backup';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Corpo JSON inválido');
@@ -26,12 +27,31 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /** Routes are mounted only on the local server, after the normal Host/Origin guard. */
-export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore, ngrok?: NgrokManager, session?: ConnectionSession, publisher?: ConnectionPublisher): boolean {
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore, ngrok?: NgrokManager, session?: ConnectionSession, publisher?: ConnectionPublisher, backups?: BackupManager): boolean {
   const path = url.pathname;
   if (!path.startsWith('/api/hub/')) return false;
   const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
   if (remote !== '::1' && !/^127\./.test(remote ?? '')) {
     sendJson(res, 403, { error: 'Acesso permitido apenas neste computador' });
+    return true;
+  }
+  if (path === '/api/hub/backups') {
+    if (!backups) sendJson(res, 503, { error: 'Backups indisponíveis' });
+    else if (req.method === 'GET') {
+      const status = backups.status();
+      sendJson(res, 200, { ...status, backups: status.backups.map(({ file: _file, ...info }) => info) });
+    } else if (req.method === 'POST') {
+      try { const { file: _file, ...info } = backups.create(); sendJson(res, 201, info); } catch (error) { fail(res, error); }
+    } else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  if (path === '/api/hub/backups/restore') {
+    if (!backups) sendJson(res, 503, { error: 'Backups indisponíveis' });
+    else if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
+    else void readJson(req).then((body) => {
+      backups.stageRestore(string(record(body).id, 'backup'));
+      sendJson(res, 202, { pendingRestore: backups.status().pendingRestore });
+    }).catch((error) => fail(res, error));
     return true;
   }
   if (path === '/api/hub/mcp') {

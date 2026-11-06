@@ -72,9 +72,12 @@ import { AdminKeyStore, startMcpServer } from './hub/mcp';
 import { NgrokManager } from './hub/ngrok';
 import { ConnectionSession } from './hub/connection-session';
 import { ConnectionPublisher } from './hub/connection-publisher';
+import { BackupManager } from './hub/backup';
 
 const config = loadConfig();
 const startedAt = Date.now();
+const backupManager = new BackupManager(join(config.dataDir, 'projecthub'));
+if (backupManager.applyPendingRestore()) log.info('Backup do ProjetoHUB restaurado antes de iniciar os agentes.');
 
 // Nome antigo (CodeTown, até a 0.3.2): leva ~/.codetown para ~/.habblaud antes de ler qualquer estado e avisa
 // das variáveis CODETOWN_* que não valem mais. No Docker, quem migra é o docker:up.
@@ -375,6 +378,14 @@ const ticker = setInterval(() => {
   }
 }, 250);
 const hubRunner = codexBin ? createCodexQueueRunner(codexBin) : undefined;
+const ensureBackup = () => {
+  try {
+    const latest = backupManager.list()[0];
+    if (!latest || Date.now() - Date.parse(latest.createdAt) >= 24 * 60 * 60_000) backupManager.create();
+  } catch (error) { log.warn(tr('Falha ao criar backup do ProjetoHUB: {0}', [errMsg(error)])); }
+};
+ensureBackup();
+const backupTimer = setInterval(ensureBackup, 60 * 60_000);
 const discoverOllama = () => { void modelRouter.discoverLocalModel().catch((error) =>
   log.warn(tr('Falha ao detectar modelo Ollama local: {0}', [errMsg(error)]))); };
 discoverOllama();
@@ -476,7 +487,7 @@ server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
-    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher) && !api(req, res, url)) fallback(req, res, url);
+    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher, backupManager) && !api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(tr('Erro ao responder {0} {1}: {2}', [req.method, url.pathname, errMsg(err)]));
     if (!res.headersSent) sendJson(res, 500, { error: tr('erro interno') });
@@ -650,6 +661,7 @@ function shutdown(signal: string): void {
   clearInterval(ticker);
   clearInterval(hubDispatcher);
   clearInterval(ollamaDiscoveryTimer);
+  clearInterval(backupTimer);
   clearInterval(jobSearchTimer);
   clearInterval(adminSessionTimer);
   clearInterval(connectionPublishTimer);

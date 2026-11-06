@@ -12,9 +12,34 @@ import { ApplicationStore } from './applications';
 import { ProfileStore } from './profile';
 import { ModelRouter } from './router';
 import { WhatsAppStore } from './whatsapp';
+import { BackupManager } from './backup';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+
+it('creates and schedules a verified backup through the local panel API', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
+  const store = new HubStore(join(dir, 'state.json'));
+  const backups = new BackupManager(dir);
+  const server = http.createServer((req, res) => {
+    handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), store,
+      undefined, fetch, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, backups);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const base = `http://127.0.0.1:${address.port}`;
+    const created = await fetch(base + '/api/hub/backups', { method: 'POST' });
+    expect(created.status).toBe(201);
+    const backup = await created.json();
+    expect(backup.id).toBeTruthy(); expect(backup.file).toBeUndefined();
+    const listed = await (await fetch(base + '/api/hub/backups')).json();
+    expect(listed.backups).toHaveLength(1);
+    const restore = await fetch(base + '/api/hub/backups/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: backup.id }) });
+    expect(restore.status).toBe(202);
+    expect((await restore.json()).pendingRestore).toBe(backup.id);
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
 
 it('refuses management access from a non-loopback socket', () => {
   const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);

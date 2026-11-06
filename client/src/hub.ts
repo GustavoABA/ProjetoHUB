@@ -10,6 +10,7 @@ type BrowserStatus = { running: boolean; headless: boolean; manual: boolean; pag
 type RouterStatus = { models: { id: string; provider: string; model: string; priority: number; enabled: boolean; available: boolean }[]; usage: { inputTokens: number; outputTokens: number; requests: number }; lastError?: string };
 type McpStatus = { configured: boolean; port: number; ngrok: { installed: boolean; running: boolean; mcpUrl?: string; error?: string }; github: { configured: boolean; lastPublishAt?: string; lastError?: string } };
 type AdminSession = { installationId: string; startedAt: string; expiresAt: string; policy: 'renew' | 'notify' | 'close'; remainingSeconds: number; expired: boolean };
+type BackupStatus = { backups: { id: string; createdAt: string; size: number }[]; pendingRestore?: string };
 type Question = { id: string; taskId: string; applicationId?: string; text: string; state: 'pending' | 'answered' | 'cancelled'; answer?: string; createdAt: string; deadline?: string };
 type Application = { id: string; jobId: string; title: string; company: string; originalUrl: string; status: 'draft' | 'awaiting_approval' | 'approved' | 'submitting' | 'submission_uncertain' | 'submitted'; answers: Record<string, string>; approvedAt?: string;
   submission?: { pageUrl: string; confirmationText?: string; confirmedAt?: string; error?: string } };
@@ -47,6 +48,7 @@ export function mountHubPanel(): void {
     <p id="hub-whatsapp-status"></p><button type="button" data-whatsapp-diagnostics>Verificar Evolution API</button> <button type="button" data-whatsapp-token>Gerar novo token do webhook</button><p id="hub-whatsapp-diagnostics"></p><p id="hub-whatsapp-token"></p>
     <p>Para parear: <a href="http://127.0.0.1:8080/manager" target="_blank" rel="noopener noreferrer" style="color:#c9bdff">abrir Evolution Manager</a>, criar somente a instância <strong>procura-de-emprego</strong> e ler o QR com o número secundário. No webhook dessa instância, use o evento MESSAGES_UPSERT e o cabeçalho X-ProjectHUB-Token com o token gerado acima. O listener precisa estar acessível à Evolution API.</p>
     <h3>Controle remoto MCP</h3><p id="hub-mcp-status"></p><p id="hub-github-status"></p><p id="hub-admin-session"></p><label>Ao completar 12 horas<select id="hub-admin-policy"><option value="notify">Avisar e manter túnel</option><option value="renew">Renovar automaticamente</option><option value="close">Fechar túnel</option></select></label><button type="button" data-session-policy>Salvar política</button> <button type="button" data-session-renew>Renovar sessão agora</button><p><button type="button" data-mcp-key>Gerar ou revogar chave administrativa</button> <button type="button" data-mcp-copy>Copiar configuração de conexão</button></p><p id="hub-mcp-key"></p><small>A chave aparece uma vez. Gerar novamente revoga a anterior. O endereço local só funciona neste computador; acesso externo requer túnel e cliente MCP compatível com autenticação Bearer.</small>
+    <h3>Backups locais</h3><p>O escritório cria uma cópia do estado a cada 24 horas. Restaurar uma cópia substitui os dados do ProjetoHUB na próxima abertura do serviço; uma cópia de segurança do estado atual é criada antes.</p><button type="button" data-backup-create>Criar backup agora</button><p id="hub-backup-status"></p><ul id="hub-backups"></ul><small>O perfil do navegador, as chaves externas e a chave administrativa MCP não entram no backup. Guarde as cópias locais em um disco protegido.</small>
     <h3>Perfil profissional</h3><p>Informe apenas dados verdadeiros. Cada linha é uma competência, experiência ou formação. Após editar, confirme novamente o perfil para permitir a pontuação das vagas.</p>
     <form id="hub-profile-form"><label>Competências<textarea name="skills" rows="4" placeholder="Excel&#10;Atendimento"></textarea></label><label>Experiência<textarea name="experience" rows="4"></textarea></label><label>Formação<textarea name="education" rows="4"></textarea></label><button>Salvar perfil</button></form>
     <button type="button" data-confirm-profile>Confirmo que estes dados são meus e estão corretos</button><p id="hub-profile-status"></p>
@@ -87,7 +89,7 @@ export function mountHubPanel(): void {
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
 
   async function refresh(): Promise<void> {
-    const [agents, tasks, questions, whatsapp, profile, jobs, applications, schedule, browser, router, mcp, adminSession, snapshot, health] = await Promise.all([
+    const [agents, tasks, questions, whatsapp, profile, jobs, applications, schedule, browser, router, mcp, adminSession, backups, snapshot, health] = await Promise.all([
       api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'),
       api<Question[]>('/api/hub/questions'),
       api<WhatsAppStatus>('/api/hub/whatsapp'),
@@ -99,8 +101,22 @@ export function mountHubPanel(): void {
       api<RouterStatus>('/api/hub/router'),
       api<McpStatus>('/api/hub/mcp'),
       api<AdminSession>('/api/hub/mcp/session'),
+      api<BackupStatus>('/api/hub/backups'),
       api<{ agents: Session[] }>('/api/snapshot'), api<{ sources: Source[] }>('/api/health'),
     ]);
+    (panel.querySelector('#hub-backup-status') as HTMLElement).textContent = backups.pendingRestore
+      ? 'Restauração agendada. Feche e abra novamente o serviço para aplicar a cópia.' : `${backups.backups.length} cópia(s) local(is).`;
+    const backupList = panel.querySelector('#hub-backups')!; backupList.replaceChildren();
+    for (const backup of backups.backups.slice(0, 20)) {
+      const li = document.createElement('li');
+      li.textContent = `${new Date(backup.createdAt).toLocaleString('pt-BR')} · ${(backup.size / 1024).toFixed(0)} KB `;
+      const restore = document.createElement('button'); restore.textContent = 'Restaurar na próxima abertura';
+      restore.onclick = () => {
+        if (!window.confirm('Restaurar esta cópia na próxima abertura do serviço? O estado atual será guardado em outra cópia.')) return;
+        void api('/api/hub/backups/restore', { id: backup.id }).then(refresh).catch(showError);
+      };
+      li.append(restore); backupList.append(li);
+    }
     currentMcpUrl = mcp.ngrok?.running && mcp.ngrok.mcpUrl ? mcp.ngrok.mcpUrl : `http://127.0.0.1:${mcp.port}/mcp`;
     (panel.querySelector('#hub-mcp-status') as HTMLElement).textContent = `MCP ${mcp.configured ? 'com chave configurada' : 'aguardando chave'} · ${currentMcpUrl} · ngrok ${mcp.ngrok?.running ? 'conectado e verificado' : mcp.ngrok?.installed ? mcp.ngrok.error ?? 'aguardando conexão' : 'não instalado'}`;
     (panel.querySelector('#hub-github-status') as HTMLElement).textContent = `GitHub: ${mcp.github?.configured ? mcp.github.lastError ? `falha na publicação (${mcp.github.lastError})` : mcp.github.lastPublishAt ? `última publicação ${new Date(mcp.github.lastPublishAt).toLocaleString('pt-BR')}` : 'publicação ainda não confirmada' : 'publicação automática não configurada'}.`;
@@ -327,6 +343,7 @@ export function mountHubPanel(): void {
   }).catch(showError);
   (panel.querySelector('[data-session-policy]') as HTMLButtonElement).onclick = () => void api('/api/hub/mcp/session', { policy: (panel.querySelector('#hub-admin-policy') as HTMLSelectElement).value }, 'PUT').then(refresh).catch(showError);
   (panel.querySelector('[data-session-renew]') as HTMLButtonElement).onclick = () => void api('/api/hub/mcp/session', {}).then(refresh).catch(showError);
+  (panel.querySelector('[data-backup-create]') as HTMLButtonElement).onclick = () => void api('/api/hub/backups', {}).then(refresh).catch(showError);
   (panel.querySelector('[data-mcp-copy]') as HTMLButtonElement).onclick = () => {
     if (!currentMcpKey) { message.textContent = 'Gere uma nova chave para copiar a configuração completa; a chave anterior não pode ser recuperada.'; return; }
     void navigator.clipboard.writeText(`URL: ${currentMcpUrl}\nAutorização: Bearer ${currentMcpKey}`).then(() => {
