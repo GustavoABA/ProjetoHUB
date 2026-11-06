@@ -4,6 +4,7 @@ type Session = { name: string; sessionId: string; account: string; provider: str
 type Source = { label: string; path: string; provider: string };
 type Job = { id: string; title: string; company: string; location: string; source: string; originalUrl: string; salary?: string; compatibility: number | null; applicationStatus: string };
 type Schedule = { query?: string; intervalHours?: number; enabled: boolean; nextRunAt?: string; lastError?: string };
+type BrowserStatus = { running: boolean; headless: boolean; manual: boolean; pages: { id: string; url: string }[] };
 const statusLabel: Record<string, string> = { unassigned: 'aguardando vínculo', queued: 'na fila', dispatching: 'enviando ao Codex', sent: 'instrução aceita pelo Codex', waiting_input: 'aguardando resposta', paused: 'pausada', done: 'concluída', failed: 'erro no envio', interrupted: 'envio interrompido; requer revisão' };
 
 const css = `
@@ -35,6 +36,8 @@ export function mountHubPanel(): void {
     <h3>Vagas remotas</h3><form id="hub-job-form"><label>Pesquisar na Remotive<input name="query" maxlength="100" required placeholder="Ex.: assistente, suporte, júnior"></label><button>Buscar vagas</button></form>
     <form id="hub-schedule-form"><label>Pesquisa automática<input name="query" maxlength="100" required placeholder="Termo de pesquisa"></label><label>Intervalo<select name="interval"><option value="6">6 horas</option><option value="12">12 horas</option><option value="24">24 horas</option></select></label><label><span>Ativar</span><input name="enabled" type="checkbox"></label><button>Salvar agenda</button></form><p id="hub-schedule-status"></p>
     <p>Fonte: Remotive. A consulta pública tem limite de quatro tentativas por dia; as vagas exibidas levam ao anúncio original.</p>
+    <h3>Navegador</h3><div><button type="button" data-browser-visible>Abrir visível</button> <button type="button" data-browser-headless>Abrir em segundo plano</button> <button type="button" data-browser-manual>Assumir controle</button> <button type="button" data-browser-stop>Fechar</button></div>
+    <form id="hub-browser-form"><label>Endereço<input name="url" type="url" required placeholder="https://..."></label><button>Abrir página</button></form><p id="hub-browser-status"></p><ul id="hub-browser-pages"></ul>
     <p id="projecthub-message" role="status"></p><h3>Agentes</h3><ul id="hub-agents"></ul><h3>Tarefas</h3><ul id="hub-tasks"></ul><h3>Vagas encontradas</h3><ul id="hub-jobs"></ul>`;
   document.body.append(open, panel);
   const message = panel.querySelector('#projecthub-message') as HTMLElement;
@@ -42,6 +45,7 @@ export function mountHubPanel(): void {
   const taskForm = panel.querySelector('#hub-task-form') as HTMLFormElement;
   const jobForm = panel.querySelector('#hub-job-form') as HTMLFormElement;
   const scheduleForm = panel.querySelector('#hub-schedule-form') as HTMLFormElement;
+  const browserForm = panel.querySelector('#hub-browser-form') as HTMLFormElement;
   const sessions = agentForm.elements.namedItem('session') as HTMLSelectElement;
   const parents = agentForm.elements.namedItem('parent') as HTMLSelectElement;
   const agentsSelect = taskForm.elements.namedItem('agent') as HTMLSelectElement;
@@ -49,12 +53,23 @@ export function mountHubPanel(): void {
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
 
   async function refresh(): Promise<void> {
-    const [agents, tasks, jobs, schedule, snapshot, health] = await Promise.all([
+    const [agents, tasks, jobs, schedule, browser, snapshot, health] = await Promise.all([
       api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'),
       api<Job[]>('/api/hub/jobs'),
       api<Schedule>('/api/hub/jobs/schedule'),
+      api<BrowserStatus>('/api/hub/browser'),
       api<{ agents: Session[] }>('/api/snapshot'), api<{ sources: Source[] }>('/api/health'),
     ]);
+    (panel.querySelector('#hub-browser-status') as HTMLElement).textContent = browser.running
+      ? `Navegador ${browser.headless ? 'em segundo plano' : 'visível'} · ${browser.manual ? 'controle manual ativo; automação suspensa' : 'automação disponível'}`
+      : 'Navegador fechado. O perfil permanece salvo neste computador.';
+    (panel.querySelector('[data-browser-manual]') as HTMLButtonElement).textContent = browser.manual ? 'Retomar automação' : 'Assumir controle';
+    const pageList = panel.querySelector('#hub-browser-pages')!; pageList.replaceChildren();
+    for (const page of browser.pages) {
+      const li = document.createElement('li'); li.textContent = `${page.url} `;
+      const shot = document.createElement('a'); shot.href = `/api/hub/browser/pages/${page.id}/screenshot`; shot.target = '_blank'; shot.rel = 'noopener noreferrer'; shot.textContent = 'Captura de tela'; shot.style.color = '#c9bdff';
+      li.append(shot); pageList.append(li);
+    }
     if (!scheduleForm.contains(document.activeElement)) {
       (scheduleForm.elements.namedItem('query') as HTMLInputElement).value = schedule.query ?? '';
       (scheduleForm.elements.namedItem('interval') as HTMLSelectElement).value = String(schedule.intervalHours ?? 6);
@@ -99,7 +114,7 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
-    if (panel.hidden || agentForm.contains(document.activeElement) || taskForm.contains(document.activeElement) || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || taskForm.contains(document.activeElement) || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
@@ -114,4 +129,10 @@ export function mountHubPanel(): void {
   scheduleForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(scheduleForm);
     void api('/api/hub/jobs/schedule', { query: data.get('query'), intervalHours: Number(data.get('interval')), enabled: data.has('enabled') }, 'PUT')
       .then(() => { message.textContent = 'Agenda salva.'; return refresh(); }).catch(showError); };
+  (panel.querySelector('[data-browser-visible]') as HTMLButtonElement).onclick = () => void api('/api/hub/browser/start', { headless: false }).then(refresh).catch(showError);
+  (panel.querySelector('[data-browser-headless]') as HTMLButtonElement).onclick = () => void api('/api/hub/browser/start', { headless: true }).then(refresh).catch(showError);
+  (panel.querySelector('[data-browser-stop]') as HTMLButtonElement).onclick = () => void api('/api/hub/browser/stop', {}).then(refresh).catch(showError);
+  (panel.querySelector('[data-browser-manual]') as HTMLButtonElement).onclick = () => void api<BrowserStatus>('/api/hub/browser').then((status) => api('/api/hub/browser/manual', { manual: !status.manual })).then(refresh).catch(showError);
+  browserForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(browserForm);
+    void api('/api/hub/browser/pages', { url: data.get('url') }).then(refresh).catch(showError); };
 }

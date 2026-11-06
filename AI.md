@@ -13,7 +13,7 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 | Windows 10 | Node e build em Windows atual; README original prioriza macOS/Linux | Inicializador Windows incluído; Windows 10 ainda sem validação específica |
 | Criação de agentes | Fluxo existente condicionado a `HABBLAUD_PTY=1` e CLI | Cadastro persistente de nome/objetivo e subagentes no painel local; execução própria ainda parcial |
 | Roteador multi-IA | Não encontrado | Pendente |
-| Navegador Playwright para agentes | `playwright-core` é dependência de desenvolvimento, usado em recursos existentes | Automação de vagas e perfil persistente pendentes |
+| Navegador Playwright para agentes | `playwright-core` já aparecia como dependência de desenvolvimento | Gerenciador local com Edge real, perfil dedicado, páginas, capturas e controle manual; automação de candidaturas pendente |
 | Vagas e candidaturas | Não encontrado | Busca manual Remotive, persistência e deduplicação de vagas; avaliação e candidaturas pendentes |
 | Evolution API / WhatsApp | Não encontrado | Pendente |
 | MCP remoto, ngrok e registro de conexão | Há recursos remotos próprios do Habblaud, mas não o MCP solicitado | Pendente; nenhuma URL ou credencial publicada |
@@ -33,6 +33,7 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 - Fase 2 parcial: sete testes novos de persistência, entrega e API passaram; `npm run typecheck` e `npm run build` passaram. Em servidor isolado na porta 4757, `POST /api/hub/agents` e `POST /api/hub/tasks` criaram um agente e uma tarefa; após reinício, ambos foram lidos do disco. O teste usou dados locais de verificação, sem enviar instruções ao Codex.
 - A instalação local informa `codex-cli 0.166.0-alpha.5.1`; `codex queue --help` confirma `--thread` e `--message`. Ainda não foi enviado comando real nesta fase, portanto a entrega e a conclusão de um trabalho Codex permanecem sem validação de ponta a ponta.
 - Pesquisa de vagas: 15 testes do módulo `server/hub/` passaram, além de checagem de tipos e build. Uma consulta real `assistant` à Remotive retornou 12 anúncios com URLs de origem. Após reiniciar o servidor isolado, `GET /api/hub/jobs` retornou os mesmos 12 registros. Os resultados são anúncios encontrados, **não** vagas recomendadas nem candidaturas iniciadas; a busca da fonte também examina descrições e pode trazer cargos fora do termo pesquisado.
+- Navegador: 18 testes do módulo `server/hub/` passaram, além de checagem de tipos e build. Em Windows, o Microsoft Edge iniciou em modo em segundo plano pela API, abriu uma página local e gerou uma captura PNG de 108.090 bytes. O modo visível iniciou, o controle manual suspendeu a automação (HTTP 409) e um teste separado confirmou que um cookie persistente permaneceu após fechar e reabrir o Edge com o mesmo perfil. Cookies de sessão sem validade persistente não foram validados para recuperação.
 
 ## Fase 2 em andamento
 
@@ -47,6 +48,16 @@ O servidor cria uma configuração inativa "Procura de Emprego" com seis subagen
 O painel permite ativar uma pesquisa periódica a cada 6, 12 ou 24 horas. O servidor guarda a próxima execução antes da chamada externa, evitando repetição imediata após queda; erros ficam visíveis na configuração. A agenda não foi ligada no ambiente de teste real e seu disparo automático foi verificado com fonte simulada. A busca manual real e a persistência foram verificadas separadamente.
 
 Cada vaga possui empresa, cargo, localidade, modalidade remota, salário quando publicado, descrição em texto, data de descoberta, URL, estado de candidatura e campos de avaliação. Requisitos e compatibilidade permanecem vazios/indeterminados até análise real e currículo confirmado. Filtros completos, mais fontes, análise, controle de candidatura e confirmação humana seguem pendentes.
+
+## Navegador
+
+`server/hub/browser.ts` usa [Playwright `launchPersistentContext`](https://playwright.dev/docs/api/class-browsertype#browser-type-launch-persistent-context) com perfil exclusivo em `<dataDir>/projecthub/browser-profile`, separado do perfil pessoal do Edge. O painel inicia Edge visível ou em segundo plano, abre páginas HTTP(S), mostra URLs e capturas e permite controle manual. Quando o controle manual está ativo, a automação de navegação e preenchimento é recusada. O registro de navegação em JSONL guarda somente origem e hash do caminho, sem parâmetros, fragmentos ou valores preenchidos. O navegador inicia apenas sob comando, não automaticamente. As rotas de controle são locais.
+
+**Escolha técnica:** [browser-use](https://github.com/browser-use/browser-use) introduziria um processo Python adicional. [Stagehand](https://github.com/browserbase/stagehand) oferece integração TypeScript e ações guiadas por IA, mas a versão atual usa seu próprio runtime CDP e exige um modelo para interpretação. O núcleo usa Playwright diretamente para ações determinísticas. Stagehand permanece candidato para páginas que precisem de interpretação depois que o roteador multi-IA estiver configurado; não está integrado nem anunciado como funcional.
+
+O Playwright não burla CAPTCHA ou verificações. Login manual é feito na janela visível. O perfil preserva armazenamento e cookies persistentes; sites que usam apenas cookies de sessão podem exigir novo login. Falta associar páginas e ações a tarefas, registrar screenshots em histórico persistente, recuperar abas específicas após queda e implementar fluxos de candidatura.
+
+`docker build` e a inicialização da imagem passaram com `playwright-core` como dependência de produção. A imagem não inclui um navegador Chromium e as rotas de controle do ProjetoHUB recusam conexões que chegam pelo gateway Docker (HTTP 403); para usar este navegador, rode o serviço Node diretamente no Windows. Liberar controle pelo Docker exigirá autenticação própria e configuração de navegador na imagem, ainda pendentes.
 
 ## Execução local
 

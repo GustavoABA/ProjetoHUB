@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readJson, sendJson } from '../http/app';
 import type { HubStore } from './store';
 import { searchRemotive, type JobStore } from './jobs';
+import type { BrowserManager } from './browser';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Corpo JSON inválido');
@@ -16,12 +17,54 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /** Routes are mounted only on the local server, after the normal Host/Origin guard. */
-export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch): boolean {
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager): boolean {
   const path = url.pathname;
   if (!path.startsWith('/api/hub/')) return false;
   const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
   if (remote !== '::1' && !/^127\./.test(remote ?? '')) {
     sendJson(res, 403, { error: 'Acesso permitido apenas neste computador' });
+    return true;
+  }
+  if (path === '/api/hub/browser') {
+    if (req.method !== 'GET') sendJson(res, 405, { error: 'Método não permitido' });
+    else sendJson(res, 200, browser?.status() ?? { running: false, headless: false, manual: false, pages: [] });
+    return true;
+  }
+  if (path.startsWith('/api/hub/browser/')) {
+    if (!browser) { sendJson(res, 503, { error: 'Navegador indisponível' }); return true; }
+    const action = path.slice('/api/hub/browser/'.length);
+    const respond = (work: Promise<unknown>, status = 200) => { void work.then((result) => sendJson(res, status, result ?? { ok: true })).catch((error) => {
+      if (res.headersSent) return;
+      const message = error instanceof Error ? error.message : 'Falha no navegador';
+      sendJson(res, message.includes('manual') ? 409 : message.includes('não encontrada') ? 404 : 400, { error: message });
+    }); };
+    if (action === 'start' && req.method === 'POST') respond(readJson(req).then((raw) => {
+      const body = record(raw);
+      if (typeof body.headless !== 'boolean') throw new Error('headless deve ser booleano');
+      return browser.start({ headless: body.headless });
+    }));
+    else if (action === 'stop' && req.method === 'POST') { req.resume(); respond(browser.stop()); }
+    else if (action === 'manual' && req.method === 'POST') respond(readJson(req).then((raw) => {
+      const body = record(raw);
+      if (typeof body.manual !== 'boolean') throw new Error('manual deve ser booleano');
+      browser.setManual(body.manual);
+      return browser.status();
+    }));
+    else if (action === 'pages' && req.method === 'POST') respond(readJson(req).then((raw) => browser.open(string(record(raw).url, 'URL'))), 201);
+    else {
+      const pageAction = /^pages\/([0-9a-f-]+)\/(navigate|fill|screenshot)$/.exec(action);
+      if (!pageAction) sendJson(res, 404, { error: 'Rota desconhecida' });
+      else if (pageAction[2] === 'screenshot' && req.method === 'GET') {
+        void browser.screenshot(pageAction[1]).then((png) => {
+          res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length, 'Cache-Control': 'no-store' }); res.end(png);
+        }).catch((error) => fail(res, error));
+      } else if (req.method === 'POST' && pageAction[2] === 'navigate') respond(readJson(req).then((raw) => browser.navigate(pageAction[1], string(record(raw).url, 'URL'))));
+      else if (req.method === 'POST' && pageAction[2] === 'fill') respond(readJson(req).then((raw) => {
+        const body = record(raw);
+        return browser.fill(pageAction[1], string(body.selector, 'seletor'), string(body.value, 'valor'));
+      }));
+      else sendJson(res, 405, { error: 'Método não permitido' });
+    }
     return true;
   }
   if (path === '/api/hub/jobs') {
