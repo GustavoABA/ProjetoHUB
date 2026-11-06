@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-export type TaskStatus = 'unassigned' | 'queued' | 'dispatching' | 'sent' | 'waiting_input' | 'paused' | 'done' | 'failed' | 'interrupted';
+export type TaskStatus = 'unassigned' | 'queued' | 'dispatching' | 'sent' | 'waiting_input' | 'paused' | 'done' | 'failed' | 'interrupted' | 'cancelled';
 export interface HubAgent {
   id: string;
   name: string;
@@ -11,6 +11,7 @@ export interface HubAgent {
   codexThread?: string;
   codexHome?: string;
   createdAt: string;
+  status?: 'active' | 'paused' | 'ended';
   systemKey?: string;
 }
 export interface HubTask {
@@ -28,7 +29,7 @@ export interface HubQuestion {
   applicationId?: string;
   text: string;
   createdAt: string;
-  state: 'pending' | 'answered';
+  state: 'pending' | 'answered' | 'cancelled';
   deadline?: string;
   answer?: string;
   answeredAt?: string;
@@ -96,7 +97,7 @@ export class HubStore {
   createAgent(input: { name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string }): HubAgent {
     const name = required(input.name, 'nome', 100);
     const objective = required(input.objective, 'objetivo', 2000);
-    if (input.parentId && !this.agent(input.parentId)) throw new Error('Agente principal não encontrado');
+    if (input.parentId && (!this.agent(input.parentId) || this.agent(input.parentId)?.status === 'ended')) throw new Error('Agente principal não encontrado ou encerrado');
     if (!!input.codexThread !== !!input.codexHome) throw new Error('Sessão e pasta Codex devem ser informadas juntas');
     if (input.codexThread && !THREAD_ID.test(input.codexThread)) throw new Error('ID da sessão Codex inválido');
     const agent: HubAgent = { id: randomUUID(), name, objective, createdAt: new Date().toISOString(),
@@ -110,6 +111,7 @@ export class HubStore {
   createTask(input: { agentId: string; instruction: string }): HubTask {
     const agent = this.agent(input.agentId);
     if (!agent) throw new Error('Agente não encontrado');
+    if (agent.status === 'ended') throw new Error('Agente encerrado não aceita novas tarefas');
     const instruction = required(input.instruction, 'instrução', 10000);
     const now = new Date().toISOString();
     const task: HubTask = { id: randomUUID(), agentId: agent.id, instruction,
@@ -128,6 +130,32 @@ export class HubStore {
     else delete task.error;
     this.save();
     return structuredClone(task);
+  }
+
+  updateAgent(id: string, changes: { name?: string; objective?: string }): HubAgent {
+    const agent = this.state.agents.find((a) => a.id === id);
+    if (!agent) throw new Error('Agente não encontrado');
+    if (agent.status === 'ended') throw new Error('Agente encerrado não pode ser editado');
+    if (changes.name !== undefined) agent.name = required(changes.name, 'nome', 100);
+    if (changes.objective !== undefined) agent.objective = required(changes.objective, 'objetivo', 2000);
+    this.save(); return structuredClone(agent);
+  }
+
+  setAgentStatus(id: string, status: 'active' | 'paused' | 'ended'): HubAgent {
+    const agent = this.state.agents.find((a) => a.id === id);
+    if (!agent) throw new Error('Agente não encontrado');
+    if (agent.status === 'ended') throw new Error('Agente já encerrado');
+    if (!['active', 'paused', 'ended'].includes(status)) throw new Error('Estado de agente inválido');
+    agent.status = status;
+    if (status === 'ended') {
+      const now = new Date().toISOString();
+      for (const task of this.state.tasks) {
+        if (task.agentId !== id || !['queued', 'unassigned', 'waiting_input', 'paused'].includes(task.status)) continue;
+        task.status = 'cancelled'; task.updatedAt = now;
+        for (const question of this.state.questions ?? []) if (question.taskId === task.id && question.state === 'pending') question.state = 'cancelled';
+      }
+    }
+    this.save(); return structuredClone(agent);
   }
 
   askQuestion(input: { taskId: string; text: string; applicationId?: string; deadline?: string }): HubQuestion {

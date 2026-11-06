@@ -1,4 +1,4 @@
-type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string };
+type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; status?: 'active' | 'paused' | 'ended' };
 type Task = { id: string; agentId: string; instruction: string; status: string; error?: string };
 type Session = { name: string; sessionId: string; account: string; provider: string };
 type Source = { label: string; path: string; provider: string };
@@ -6,9 +6,9 @@ type Job = { id: string; title: string; company: string; location: string; sourc
 type Schedule = { query?: string; intervalHours?: number; enabled: boolean; nextRunAt?: string; lastError?: string };
 type BrowserStatus = { running: boolean; headless: boolean; manual: boolean; pages: { id: string; url: string }[] };
 type RouterStatus = { models: { id: string; provider: string; model: string; priority: number; enabled: boolean; available: boolean }[]; usage: { inputTokens: number; outputTokens: number; requests: number }; lastError?: string };
-type Question = { id: string; taskId: string; applicationId?: string; text: string; state: 'pending' | 'answered'; answer?: string; createdAt: string; deadline?: string };
+type Question = { id: string; taskId: string; applicationId?: string; text: string; state: 'pending' | 'answered' | 'cancelled'; answer?: string; createdAt: string; deadline?: string };
 type Application = { id: string; jobId: string; title: string; company: string; originalUrl: string; status: 'draft' | 'awaiting_approval' | 'approved'; answers: Record<string, string>; approvedAt?: string };
-const statusLabel: Record<string, string> = { unassigned: 'aguardando vínculo', queued: 'na fila', dispatching: 'enviando ao Codex', sent: 'instrução aceita pelo Codex', waiting_input: 'aguardando resposta', paused: 'pausada', done: 'concluída', failed: 'erro no envio', interrupted: 'envio interrompido; requer revisão' };
+const statusLabel: Record<string, string> = { unassigned: 'aguardando vínculo', queued: 'na fila', dispatching: 'enviando ao Codex', sent: 'instrução aceita pelo Codex', waiting_input: 'aguardando resposta', paused: 'pausada', done: 'concluída', failed: 'erro no envio', interrupted: 'envio interrompido; requer revisão', cancelled: 'cancelada' };
 
 const css = `
 #projecthub-open{position:fixed;right:16px;top:72px;z-index:80;background:#3e326d;color:#fff;border:2px solid #a697e2;padding:9px 14px;font:600 16px 'Pixelify Sans',sans-serif;cursor:pointer}
@@ -118,9 +118,22 @@ export function mountHubPanel(): void {
     }
     const agentList = panel.querySelector('#hub-agents')!; agentList.replaceChildren();
     for (const agent of agents) {
-      option(parents, agent.id, agent.name); option(agentsSelect, agent.id, agent.name);
+      if (agent.status !== 'ended') { option(parents, agent.id, agent.name); option(agentsSelect, agent.id, agent.name); }
       const li = document.createElement('li'); li.textContent = `${agent.name} — ${agent.objective}`;
-      const detail = document.createElement('small'); detail.textContent = agent.codexThread ? ' · Sessão Codex vinculada' : ' · Sem sessão vinculada'; li.append(detail); agentList.append(li);
+      const detail = document.createElement('small'); detail.textContent = ` · ${agent.status === 'ended' ? 'encerrado' : agent.status === 'paused' ? 'pausado' : 'ativo'} · ${agent.codexThread ? 'sessão Codex vinculada' : 'sem sessão vinculada'}`; li.append(detail);
+      if (agent.status !== 'ended') {
+        const edit = document.createElement('form');
+        const name = document.createElement('input'); name.value = agent.name; name.maxLength = 100; name.required = true; name.setAttribute('aria-label', 'Nome do agente');
+        const objective = document.createElement('input'); objective.value = agent.objective; objective.maxLength = 2000; objective.required = true; objective.setAttribute('aria-label', 'Objetivo do agente');
+        const save = document.createElement('button'); save.textContent = 'Salvar'; edit.append(name, objective, save);
+        edit.onsubmit = (event) => { event.preventDefault(); void api(`/api/hub/agents/${agent.id}`, { name: name.value, objective: objective.value }, 'PATCH').then(refresh).catch(showError); };
+        const toggle = document.createElement('button'); toggle.textContent = agent.status === 'paused' ? 'Retomar agente' : 'Pausar agente';
+        toggle.onclick = () => void api(`/api/hub/agents/${agent.id}/status`, { status: agent.status === 'paused' ? 'active' : 'paused' }).then(refresh).catch(showError);
+        const end = document.createElement('button'); end.textContent = 'Encerrar agente';
+        end.onclick = () => void api(`/api/hub/agents/${agent.id}/status`, { status: 'ended' }).then(() => { message.textContent = 'Agente encerrado. Instruções já aceitas pelo Codex não foram interrompidas.'; return refresh(); }).catch(showError);
+        li.append(edit, toggle, end);
+      }
+      agentList.append(li);
     }
     const taskList = panel.querySelector('#hub-tasks')!; taskList.replaceChildren();
     for (const task of tasks.slice().reverse()) {
@@ -135,7 +148,7 @@ export function mountHubPanel(): void {
     }
     const questionList = panel.querySelector('#hub-questions')!; questionList.replaceChildren();
     for (const question of questions.slice().reverse().slice(0, 100)) {
-      const li = document.createElement('li'); li.textContent = `${question.text} · tarefa ${question.taskId.slice(0, 8)} · ${question.state === 'pending' ? 'aguardando resposta' : 'respondida'} `;
+      const li = document.createElement('li'); li.textContent = `${question.text} · tarefa ${question.taskId.slice(0, 8)} · ${question.state === 'pending' ? 'aguardando resposta' : question.state === 'cancelled' ? 'cancelada' : 'respondida'} `;
       if (question.state === 'pending') {
         const form = document.createElement('form');
         const input = document.createElement('input'); input.required = true; input.maxLength = 5000; input.placeholder = 'Resposta confirmada pelo usuário'; input.setAttribute('aria-label', 'Resposta');
@@ -183,7 +196,7 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
-    if (panel.hidden || agentForm.contains(document.activeElement) || taskForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];

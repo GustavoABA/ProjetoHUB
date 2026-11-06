@@ -183,6 +183,21 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
+  const agentAction = /^\/api\/hub\/agents\/([0-9a-f-]+)(?:\/(status))?$/.exec(path);
+  if (agentAction) {
+    if (agentAction[2] === 'status' && req.method === 'POST') void readJson(req).then((raw) => {
+      const status = string(record(raw).status, 'estado');
+      if (status !== 'active' && status !== 'paused' && status !== 'ended') throw new Error('Estado de agente inválido');
+      sendJson(res, 200, store.setAgentStatus(agentAction[1], status));
+    }).catch((error) => fail(res, error));
+    else if (!agentAction[2] && req.method === 'PATCH') void readJson(req).then((raw) => {
+      const body = record(raw);
+      sendJson(res, 200, store.updateAgent(agentAction[1], { ...(body.name !== undefined ? { name: string(body.name, 'nome') } : {}),
+        ...(body.objective !== undefined ? { objective: string(body.objective, 'objetivo') } : {}) }));
+    }).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
   if (path === '/api/hub/tasks') {
     if (req.method === 'GET') sendJson(res, 200, store.listTasks());
     else if (req.method === 'POST') void readJson(req).then((raw) => {

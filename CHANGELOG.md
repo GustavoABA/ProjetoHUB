@@ -20,6 +20,7 @@ do meio (0.**3**.0).
 - Roteador local para seis provedores, com modelos persistentes, prioridades, fallback em falhas recuperáveis, contagem de tokens e teste manual no painel.
 - Perguntas pendentes persistentes vinculadas a tarefas, com resposta pelo painel e espera restrita à tarefa relacionada.
 - Rascunhos de candidatura vinculados a vagas reais, deduplicação, respostas confirmadas e aprovação explícita sem declarar envio.
+- Edição, pausa, retomada e encerramento de agentes; tarefas não entregues são canceladas ao encerrar.
 
 ## [1.0.3] - 2026-10-16
 

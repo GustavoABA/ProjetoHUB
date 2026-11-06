@@ -11,7 +11,7 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 | Codex | `server/sources/codex/`, `server/messages/codex.ts`, `scripts/codex-install.ts`, hooks | Sessão real detectada no Windows; envio e hooks ainda não validados nesta instalação |
 | Português brasileiro | Texto base em português e `shared/locales/` | Importado |
 | Windows 10 | Node e build em Windows atual; README original prioriza macOS/Linux | Inicializador Windows incluído; Windows 10 ainda sem validação específica |
-| Criação de agentes | Fluxo existente condicionado a `HABBLAUD_PTY=1` e CLI | Cadastro persistente de nome/objetivo e subagentes no painel local; execução própria ainda parcial |
+| Criação de agentes | Fluxo existente condicionado a `HABBLAUD_PTY=1` e CLI | Cadastro persistente de nome/objetivo e subagentes; edição, pausa, retomada e encerramento no painel; execução própria ainda parcial |
 | Roteador multi-IA | Não encontrado | Cadastro local de modelos, seleção por prioridade, fallback e contagem de tokens; credenciais via ambiente; ainda sem prova com provedor real |
 | Navegador Playwright para agentes | `playwright-core` já aparecia como dependência de desenvolvimento | Gerenciador local com Edge real, perfil dedicado, páginas, capturas e controle manual; automação de candidaturas pendente |
 | Vagas e candidaturas | Não encontrado | Busca manual Remotive, persistência e deduplicação; rascunho e aprovação de candidatura persistentes; avaliação e envio pendentes |
@@ -39,12 +39,13 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 - Em uma segunda execução isolada na porta 4763, o Ollama instalado neste Windows listou `qwen2.5:1.5b`. O painel/API cadastrou esse modelo e `POST /api/hub/router/complete` recebeu `OK` de uma inferência real; o serviço informou 38 tokens de entrada e 2 de saída. O arquivo local `router.json` continuou com o modelo e os contadores após encerrar o servidor. Isso valida Ollama neste computador, mas não os demais provedores nem a recuperação automática de um processo que caiu durante uma chamada.
 - Perguntas: 25 testes do módulo `server/hub/` passaram. Em servidor isolado na porta 4764, a API criou duas tarefas, colocou somente a primeira em `waiting_input`, registrou a resposta e devolveu somente essa tarefa a `unassigned`. O arquivo de estado guarda a pergunta e a resposta. O teste não envolveu WhatsApp nem candidatura real.
 - Candidaturas: 30 testes do módulo `server/hub/` passaram, incluindo criação pela API a partir de uma vaga com origem, bloqueio de duplicata, exigência de resposta confirmada e aprovação explícita. O teste de integração usa uma resposta Remotive simulada; nenhuma candidatura real foi iniciada ou enviada.
+- Ciclo de agentes: 33 testes do módulo `server/hub/` passaram. Testes de estado e API verificam edição, pausa, retomada e encerramento; o despachante ignora agentes pausados e cancela somente tarefas ainda não entregues quando um agente é encerrado. `npm run typecheck` e `npm run build` passaram. A interrupção de uma execução Codex já aceita não foi verificada nem implementada.
 
 ## Fase 2 em andamento
 
 `server/hub/` mantém agentes e tarefas em `<dataDir>/projecthub/state.json`. O painel "Agentes e tarefas" no escritório cria agentes com nome e objetivo, permite vincular uma sessão Codex detectada e criar subagentes. Tarefas sem vínculo ficam `unassigned`; tarefas vinculadas entram na fila local e o processo tenta entregá-las pelo `codex queue` existente. `sent` significa **apenas que a instrução foi aceita pela fila**, nunca que a execução terminou. Se o processo cair durante uma entrega, a tarefa volta como `interrupted` para revisão, evitando reenviar automaticamente uma instrução possivelmente entregue. As rotas `/api/hub/*` aceitam apenas conexão do próprio computador.
 
-Ainda faltam edição e encerramento de agentes, confirmação de resultado do Codex, concorrência configurável, retentativas seguras e integração plena dos estados ao personagem pixel-art. O painel novo não anuncia atividade de agentes configurados como se fossem sessões reais.
+Agentes agora podem ser editados, pausados, retomados e encerrados pela interface local. O despachante ignora tarefas de agentes pausados. Encerrar cancela tarefas não entregues e perguntas pendentes delas, mas mantém as instruções já aceitas pelo Codex em `sent`: o sistema não afirma que conseguiu interrompê-las. Ainda faltam confirmação de resultado do Codex, concorrência configurável, retentativas seguras e integração plena dos estados ao personagem pixel-art. O painel novo não anuncia atividade de agentes configurados como se fossem sessões reais.
 
 Perguntas pendentes agora têm ID, tarefa vinculada, candidatura opcional, texto, criação, estado, prazo opcional, resposta e data da resposta. O painel local permite registrar e responder. A tarefa vinculada entra em `waiting_input` e volta ao estado anterior quando respondida; as demais tarefas mantêm seus estados. Apenas tarefas ainda não enviadas ao Codex ou pausadas podem receber pergunta, pois a API não consegue suspender uma execução Codex já aceita pela fila. Falta integrar o canal WhatsApp, validar o remetente e retomar um fluxo de candidatura a partir dessa resposta.
 
@@ -86,7 +87,7 @@ O endereço local é `http://127.0.0.1:4747`. Não exponha a porta original dire
 
 1. Resolver ou classificar os 19 testes que falham no Windows, sem reduzir proteções de arquivos em plataformas POSIX.
 2. Validar o fluxo de hooks e mensagens Codex com as APIs oficialmente disponíveis nesta versão; a detecção de sessão já foi validada.
-3. Completar o orquestrador persistente: reconciliar resultados reais do Codex, edição de agentes, retentativas seguras, prioridades e recuperação.
+3. Completar o orquestrador persistente: reconciliar resultados reais do Codex, retentativas seguras, prioridades e recuperação.
 4. Validar provedores externos configurados, acrescentar limites/custos/credenciais protegidas, depois avaliação de vagas, execução de candidaturas aprovadas com confirmação do portal, WhatsApp e MCP autenticado. Cada integração externa requer configuração legítima e teste real antes de ser marcada funcional.
 
 Nenhuma candidatura, mensagem WhatsApp, túnel ngrok ou comando MCP foi executado nesta fase. Nenhuma credencial foi lida para integrar provedores externos.
