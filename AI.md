@@ -29,6 +29,7 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 - `npm run build`: passou; cliente e servidor gerados. Vite informou aviso de tamanho de bundle.
 - `npm test -- --run`: **1852 testes passaram, 19 falharam, 13 ignorados** em 158 arquivos. As falhas concentram-se em expectativas POSIX (permissões `0600`, caminhos `/Users/...`, shell e certificados) e dois testes de integração do Habblaud World. A suíte completa **não está verde no Windows**; nenhuma falha foi ocultada.
 - `npm start`: servidor iniciou em `127.0.0.1:4747`. `GET /api/health` retornou `ok: true`, uma fonte Codex válida e uma sessão. `GET /api/snapshot` retornou uma sala e um agente Codex com `demo: false`. Isso comprova leitura local de uma sessão real, não funcionamento de hooks, envio de instruções ou subagentes.
+- `scripts/start-windows.ps1 -Window`: passou com servidor já ativo e após encerrá-lo; no segundo caso iniciou um novo processo e a verificação de saúde retornou `true`. A inspeção visual da janela e a compatibilidade com Windows 10 continuam pendentes.
 
 ## Execução local
 
