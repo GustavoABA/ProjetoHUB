@@ -31,6 +31,7 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 - `npm start`: servidor iniciou em `127.0.0.1:4747`. `GET /api/health` retornou `ok: true`, uma fonte Codex válida e uma sessão. `GET /api/snapshot` retornou uma sala e um agente Codex com `demo: false`. Isso comprova leitura local de uma sessão real, não funcionamento de hooks, envio de instruções ou subagentes.
 - `scripts/start-windows.ps1 -Window`: passou com servidor já ativo e após encerrá-lo; no segundo caso iniciou um novo processo e a verificação de saúde retornou `true`. A inspeção visual da janela e a compatibilidade com Windows 10 continuam pendentes.
 - Fase 2 parcial: sete testes novos de persistência, entrega e API passaram; `npm run typecheck` e `npm run build` passaram. Em servidor isolado na porta 4757, `POST /api/hub/agents` e `POST /api/hub/tasks` criaram um agente e uma tarefa; após reinício, ambos foram lidos do disco. O teste usou dados locais de verificação, sem enviar instruções ao Codex.
+- A instalação local informa `codex-cli 0.166.0-alpha.5.1`; `codex queue --help` confirma `--thread` e `--message`. Ainda não foi enviado comando real nesta fase, portanto a entrega e a conclusão de um trabalho Codex permanecem sem validação de ponta a ponta.
 
 ## Fase 2 em andamento
 
