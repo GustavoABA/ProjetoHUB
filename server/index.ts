@@ -69,6 +69,9 @@ import { ProfileStore } from './hub/profile';
 import { WhatsAppStore } from './hub/whatsapp';
 import { handleWhatsAppWebhook } from './hub/whatsapp-http';
 import { AdminKeyStore, startMcpServer } from './hub/mcp';
+import { NgrokManager } from './hub/ngrok';
+import { ConnectionSession } from './hub/connection-session';
+import { ConnectionPublisher } from './hub/connection-publisher';
 
 const config = loadConfig();
 const startedAt = Date.now();
@@ -94,6 +97,20 @@ const applicationStore = new ApplicationStore(join(config.dataDir, 'projecthub',
 const profileStore = new ProfileStore(join(config.dataDir, 'projecthub', 'profile.json'));
 const whatsAppStore = new WhatsAppStore(join(config.dataDir, 'projecthub', 'whatsapp.json'));
 const mcpKeys = new AdminKeyStore(join(config.dataDir, 'projecthub', 'mcp-admin.json'));
+const connectionSession = new ConnectionSession(join(config.dataDir, 'projecthub', 'connection-session.json'));
+const connectionPublisher = new ConnectionPublisher(process.env.PROJECTHUB_GITHUB_TOKEN);
+let ngrokManager: NgrokManager | undefined;
+let publication = Promise.resolve();
+function publishConnection(): void {
+  if (!connectionPublisher.status().configured) return;
+  const session = connectionSession.status();
+  const tunnel = ngrokManager?.status();
+  publication = publication.then(() => connectionPublisher.publish({
+    installationId: session.installationId, mcpUrl: tunnel?.running ? tunnel.mcpUrl ?? null : null,
+    updatedAt: new Date().toISOString(), version: config.version, status: tunnel?.running ? 'online' : 'offline',
+    sessionStartedAt: session.startedAt, sessionExpiresAt: session.expiresAt,
+  })).catch((error) => log.warn(`Publicação de conexão GitHub: ${errMsg(error)}`));
+}
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
@@ -455,7 +472,7 @@ server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
-    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys) && !api(req, res, url)) fallback(req, res, url);
+    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher) && !api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(tr('Erro ao responder {0} {1}: {2}', [req.method, url.pathname, errMsg(err)]));
     if (!res.headersSent) sendJson(res, 500, { error: tr('erro interno') });
@@ -474,10 +491,26 @@ const mcpPort = Number(process.env.PROJECTHUB_MCP_PORT ?? 4748);
 let mcpServer: http.Server | undefined;
 if (Number.isInteger(mcpPort) && mcpPort > 0 && mcpPort <= 65_535 && mcpPort !== config.port) {
   const publicHost = process.env.PROJECTHUB_MCP_PUBLIC_HOST?.trim().toLowerCase();
+  const allowedHosts = ['127.0.0.1', 'localhost', ...(publicHost ? [publicHost] : [])];
   mcpServer = startMcpServer({ hub: projectHub, jobs: jobStore, applications: applicationStore,
-    router: modelRouter, keys: mcpKeys, allowedHosts: ['127.0.0.1', 'localhost', ...(publicHost ? [publicHost] : [])] }, mcpPort);
+    router: modelRouter, keys: mcpKeys, allowedHosts }, mcpPort);
+  let activeTunnelHost: string | undefined;
+  ngrokManager = new NgrokManager(mcpPort, (status) => {
+    const newHost = status.running && status.publicUrl ? new URL(status.publicUrl).hostname : undefined;
+    if (newHost === activeTunnelHost) return;
+    if (activeTunnelHost) allowedHosts.splice(allowedHosts.indexOf(activeTunnelHost), 1);
+    activeTunnelHost = newHost;
+    if (activeTunnelHost) allowedHosts.push(activeTunnelHost);
+    if (status.running && status.mcpUrl) log.info(`MCP público verificado em ${status.mcpUrl}`);
+    publishConnection();
+  });
+  mcpKeys.onRotate(() => { if (!(connectionSession.status().expired && connectionSession.status().policy === 'close')) ngrokManager?.start(); });
   mcpServer.on('error', (error) => log.warn(`MCP indisponível: ${errMsg(error)}`));
-  mcpServer.once('listening', () => log.info(`MCP em 127.0.0.1:${mcpPort}/mcp; autenticação obrigatória.`));
+  mcpServer.once('listening', () => {
+    log.info(`MCP em 127.0.0.1:${mcpPort}/mcp; autenticação obrigatória.`);
+    publishConnection();
+    if (mcpKeys.configured() && !(connectionSession.status().expired && connectionSession.status().policy === 'close')) ngrokManager?.start();
+  });
 } else log.warn('Porta MCP inválida ou igual à porta principal; MCP desativado.');
 let whatsAppWebhookServer: http.Server | undefined;
 if (Number.isInteger(webhookPort) && webhookPort > 0 && webhookPort <= 65_535) {
@@ -600,6 +633,13 @@ server.listen(config.port, config.host, () => {
 });
 
 let shuttingDown = false;
+const adminSessionTimer = setInterval(() => {
+  const action = connectionSession.tick();
+  if (action === 'notify') log.warn('Sessão administrativa de 12 horas encerrada; o túnel continua ativo. Renove pelo painel.');
+  if (action === 'close') { ngrokManager?.stop(); log.info('Sessão administrativa encerrada; túnel fechado sem interromper tarefas.'); }
+  if (action) publishConnection();
+}, 30_000);
+const connectionPublishTimer = setInterval(publishConnection, 5 * 60 * 60_000);
 function shutdown(signal: string): void {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -607,6 +647,8 @@ function shutdown(signal: string): void {
   clearInterval(ticker);
   clearInterval(hubDispatcher);
   clearInterval(jobSearchTimer);
+  clearInterval(adminSessionTimer);
+  clearInterval(connectionPublishTimer);
   stats.stop();
   agents.stop();
   accounts.stop();
@@ -625,6 +667,7 @@ function shutdown(signal: string): void {
   remoteListener?.close();
   whatsAppWebhookServer?.close();
   mcpServer?.close();
+  ngrokManager?.stop();
   void browserManager.stop().catch((error) => log.warn(tr('Falha ao fechar navegador: {0}', [errMsg(error)]))).finally(() => {
     server.close(() => process.exit(0));
   });

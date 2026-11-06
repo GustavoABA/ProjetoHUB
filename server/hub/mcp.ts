@@ -12,6 +12,7 @@ import type { ModelRouter } from './router';
 
 export class AdminKeyStore {
   private hash: string | undefined;
+  private readonly rotationListeners = new Set<() => void>();
   constructor(private readonly file: string) {
     if (existsSync(file)) {
       const raw = JSON.parse(readFileSync(file, 'utf8')) as { version?: number; hash?: string };
@@ -28,8 +29,10 @@ export class AdminKeyStore {
     writeFileSync(temp, JSON.stringify({ version: 1, hash }, null, 2), { mode: 0o600 });
     renameSync(temp, this.file);
     this.hash = hash;
+    for (const listener of this.rotationListeners) listener();
     return key;
   }
+  onRotate(listener: () => void): () => void { this.rotationListeners.add(listener); return () => this.rotationListeners.delete(listener); }
   verify(key: string): boolean {
     if (!this.hash || !/^phub_[0-9a-f]{64}$/.test(key)) return false;
     return timingSafeEqual(Buffer.from(this.hash, 'hex'), createHash('sha256').update(key).digest());
@@ -79,12 +82,12 @@ export function createMcpRequestHandler(deps: McpDependencies): (req: IncomingMe
     return server;
   }, { legacy: 'stateless' });
   const node = toNodeHandler(handler);
-  const allowed = new Set(deps.allowedHosts.map((h) => h.toLowerCase()));
   return (req, res) => {
     const path = req.url?.split('?')[0];
     if (path === '/health' && req.method === 'GET') { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"service":"projecthub-mcp","ok":true}'); return; }
     if (path !== '/mcp') { res.writeHead(404); res.end(); return; }
     const host = req.headers.host?.split(':')[0]?.toLowerCase();
+    const allowed = new Set(deps.allowedHosts.map((h) => h.toLowerCase()));
     let originHost: string | undefined;
     if (req.headers.origin) { try { originHost = new URL(req.headers.origin).hostname.toLowerCase(); } catch { res.writeHead(403); res.end(); return; } }
     if (!host || !allowed.has(host) || (originHost && !allowed.has(originHost))) { res.writeHead(403); res.end(); return; }

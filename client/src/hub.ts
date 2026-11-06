@@ -8,7 +8,8 @@ type WhatsAppStatus = { instance: string; mainNumber?: string; secondaryNumber?:
 type Schedule = { query?: string; intervalHours?: number; enabled: boolean; nextRunAt?: string; lastError?: string };
 type BrowserStatus = { running: boolean; headless: boolean; manual: boolean; pages: { id: string; url: string }[] };
 type RouterStatus = { models: { id: string; provider: string; model: string; priority: number; enabled: boolean; available: boolean }[]; usage: { inputTokens: number; outputTokens: number; requests: number }; lastError?: string };
-type McpStatus = { configured: boolean; port: number };
+type McpStatus = { configured: boolean; port: number; ngrok: { installed: boolean; running: boolean; mcpUrl?: string; error?: string }; github: { configured: boolean; lastPublishAt?: string; lastError?: string } };
+type AdminSession = { installationId: string; startedAt: string; expiresAt: string; policy: 'renew' | 'notify' | 'close'; remainingSeconds: number; expired: boolean };
 type Question = { id: string; taskId: string; applicationId?: string; text: string; state: 'pending' | 'answered' | 'cancelled'; answer?: string; createdAt: string; deadline?: string };
 type Application = { id: string; jobId: string; title: string; company: string; originalUrl: string; status: 'draft' | 'awaiting_approval' | 'approved'; answers: Record<string, string>; approvedAt?: string };
 const statusLabel: Record<string, string> = { unassigned: 'aguardando execução', queued: 'na fila', dispatching: 'em processamento', sent: 'instrução aceita pelo Codex', waiting_input: 'aguardando resposta', paused: 'pausada', done: 'concluída', result_ready: 'resposta local pronta para revisão', failed: 'erro na execução', interrupted: 'execução interrompida; requer revisão', cancelled: 'cancelada' };
@@ -44,7 +45,7 @@ export function mountHubPanel(): void {
     <form id="hub-whatsapp-form"><label>Número principal (destino)<input name="mainNumber" inputmode="numeric" pattern="[0-9]{10,15}" required></label><label>Número secundário (instância)<input name="secondaryNumber" inputmode="numeric" pattern="[0-9]{10,15}" required></label><button>Salvar números</button></form>
     <p id="hub-whatsapp-status"></p><button type="button" data-whatsapp-diagnostics>Verificar Evolution API</button> <button type="button" data-whatsapp-token>Gerar novo token do webhook</button><p id="hub-whatsapp-diagnostics"></p><p id="hub-whatsapp-token"></p>
     <p>Para parear: <a href="http://127.0.0.1:8080/manager" target="_blank" rel="noopener noreferrer" style="color:#c9bdff">abrir Evolution Manager</a>, criar somente a instância <strong>procura-de-emprego</strong> e ler o QR com o número secundário. No webhook dessa instância, use o evento MESSAGES_UPSERT e o cabeçalho X-ProjectHUB-Token com o token gerado acima. O listener precisa estar acessível à Evolution API.</p>
-    <h3>Controle remoto MCP</h3><p id="hub-mcp-status"></p><button type="button" data-mcp-key>Gerar ou revogar chave administrativa</button> <button type="button" data-mcp-copy>Copiar configuração de conexão</button><p id="hub-mcp-key"></p><small>A chave aparece uma vez. Gerar novamente revoga a anterior. O endereço local só funciona neste computador; acesso externo requer túnel e cliente MCP compatível com autenticação Bearer.</small>
+    <h3>Controle remoto MCP</h3><p id="hub-mcp-status"></p><p id="hub-github-status"></p><p id="hub-admin-session"></p><label>Ao completar 12 horas<select id="hub-admin-policy"><option value="notify">Avisar e manter túnel</option><option value="renew">Renovar automaticamente</option><option value="close">Fechar túnel</option></select></label><button type="button" data-session-policy>Salvar política</button> <button type="button" data-session-renew>Renovar sessão agora</button><p><button type="button" data-mcp-key>Gerar ou revogar chave administrativa</button> <button type="button" data-mcp-copy>Copiar configuração de conexão</button></p><p id="hub-mcp-key"></p><small>A chave aparece uma vez. Gerar novamente revoga a anterior. O endereço local só funciona neste computador; acesso externo requer túnel e cliente MCP compatível com autenticação Bearer.</small>
     <h3>Perfil profissional</h3><p>Informe apenas dados verdadeiros. Cada linha é uma competência, experiência ou formação. Após editar, confirme novamente o perfil para permitir a pontuação das vagas.</p>
     <form id="hub-profile-form"><label>Competências<textarea name="skills" rows="4" placeholder="Excel&#10;Atendimento"></textarea></label><label>Experiência<textarea name="experience" rows="4"></textarea></label><label>Formação<textarea name="education" rows="4"></textarea></label><button>Salvar perfil</button></form>
     <button type="button" data-confirm-profile>Confirmo que estes dados são meus e estão corretos</button><p id="hub-profile-status"></p>
@@ -81,11 +82,11 @@ export function mountHubPanel(): void {
   const applicationJobs = applicationForm.elements.namedItem('job') as HTMLSelectElement;
   let choices: { thread: string; home: string }[] = [];
   let currentMcpKey: string | undefined;
-  let mcpPort = 4748;
+  let currentMcpUrl = 'http://127.0.0.1:4748/mcp';
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
 
   async function refresh(): Promise<void> {
-    const [agents, tasks, questions, whatsapp, profile, jobs, applications, schedule, browser, router, mcp, snapshot, health] = await Promise.all([
+    const [agents, tasks, questions, whatsapp, profile, jobs, applications, schedule, browser, router, mcp, adminSession, snapshot, health] = await Promise.all([
       api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'),
       api<Question[]>('/api/hub/questions'),
       api<WhatsAppStatus>('/api/hub/whatsapp'),
@@ -96,10 +97,16 @@ export function mountHubPanel(): void {
       api<BrowserStatus>('/api/hub/browser'),
       api<RouterStatus>('/api/hub/router'),
       api<McpStatus>('/api/hub/mcp'),
+      api<AdminSession>('/api/hub/mcp/session'),
       api<{ agents: Session[] }>('/api/snapshot'), api<{ sources: Source[] }>('/api/health'),
     ]);
-    mcpPort = mcp.port;
-    (panel.querySelector('#hub-mcp-status') as HTMLElement).textContent = `MCP ${mcp.configured ? 'com chave configurada' : 'aguardando chave'} · http://127.0.0.1:${mcp.port}/mcp`;
+    currentMcpUrl = mcp.ngrok?.running && mcp.ngrok.mcpUrl ? mcp.ngrok.mcpUrl : `http://127.0.0.1:${mcp.port}/mcp`;
+    (panel.querySelector('#hub-mcp-status') as HTMLElement).textContent = `MCP ${mcp.configured ? 'com chave configurada' : 'aguardando chave'} · ${currentMcpUrl} · ngrok ${mcp.ngrok?.running ? 'conectado e verificado' : mcp.ngrok?.installed ? mcp.ngrok.error ?? 'aguardando conexão' : 'não instalado'}`;
+    (panel.querySelector('#hub-github-status') as HTMLElement).textContent = `GitHub: ${mcp.github?.configured ? mcp.github.lastError ? `falha na publicação (${mcp.github.lastError})` : mcp.github.lastPublishAt ? `última publicação ${new Date(mcp.github.lastPublishAt).toLocaleString('pt-BR')}` : 'publicação ainda não confirmada' : 'publicação automática não configurada'}.`;
+    const hours = Math.floor(adminSession.remainingSeconds / 3600), minutes = Math.floor(adminSession.remainingSeconds % 3600 / 60), seconds = adminSession.remainingSeconds % 60;
+    (panel.querySelector('#hub-admin-session') as HTMLElement).textContent = `Sessão administrativa ${adminSession.expired ? 'expirada' : `restante ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`} · instalação ${adminSession.installationId.slice(0, 8)}.`;
+    const policySelect = panel.querySelector('#hub-admin-policy') as HTMLSelectElement;
+    if (document.activeElement !== policySelect) policySelect.value = adminSession.policy;
     if (!whatsappForm.contains(document.activeElement)) {
       (whatsappForm.elements.namedItem('mainNumber') as HTMLInputElement).value = whatsapp.mainNumber ?? '';
       (whatsappForm.elements.namedItem('secondaryNumber') as HTMLInputElement).value = whatsapp.secondaryNumber ?? '';
@@ -271,9 +278,14 @@ export function mountHubPanel(): void {
     (panel.querySelector('#hub-mcp-key') as HTMLElement).textContent = `Chave exibida uma vez: ${key}`;
     return refresh();
   }).catch(showError);
-  (panel.querySelector('[data-mcp-copy]') as HTMLButtonElement).onclick = () => void navigator.clipboard.writeText(`URL: http://127.0.0.1:${mcpPort}/mcp\nAutorização: Bearer ${currentMcpKey ?? '[use a chave exibida ao gerar; ela não pode ser recuperada]'}`).then(() => {
+  (panel.querySelector('[data-session-policy]') as HTMLButtonElement).onclick = () => void api('/api/hub/mcp/session', { policy: (panel.querySelector('#hub-admin-policy') as HTMLSelectElement).value }, 'PUT').then(refresh).catch(showError);
+  (panel.querySelector('[data-session-renew]') as HTMLButtonElement).onclick = () => void api('/api/hub/mcp/session', {}).then(refresh).catch(showError);
+  (panel.querySelector('[data-mcp-copy]') as HTMLButtonElement).onclick = () => {
+    if (!currentMcpKey) { message.textContent = 'Gere uma nova chave para copiar a configuração completa; a chave anterior não pode ser recuperada.'; return; }
+    void navigator.clipboard.writeText(`URL: ${currentMcpUrl}\nAutorização: Bearer ${currentMcpKey}`).then(() => {
     message.textContent = 'Configuração de conexão copiada. Mantenha a chave em local privado.';
-  }).catch(showError);
+    }).catch(showError);
+  };
   const originalClose = (panel.querySelector('[data-close]') as HTMLButtonElement).onclick;
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = (event) => { (panel.querySelector('#hub-whatsapp-token') as HTMLElement).textContent = ''; (panel.querySelector('#hub-mcp-key') as HTMLElement).textContent = ''; currentMcpKey = undefined; originalClose?.call(panel.querySelector('[data-close]') as HTMLButtonElement, event); };
   profileForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(profileForm);
