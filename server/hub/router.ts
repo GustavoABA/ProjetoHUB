@@ -41,6 +41,23 @@ export class ModelRouter {
   status() {
     return { models: this.state.models.map((m) => ({ ...m, available: m.enabled && (keys[m.provider] === null || Boolean(this.env[keys[m.provider]!])) })), usage: { ...this.state.usage }, lastError: this.state.lastError };
   }
+  /** Register the smallest installed local model only when the user has not configured Ollama. */
+  async discoverLocalModel(): Promise<Model | undefined> {
+    const configured = this.state.models.find((model) => model.provider === 'ollama');
+    if (configured) return configured.enabled ? { ...configured } : undefined;
+    try {
+      const response = await this.fetcher('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(5_000) });
+      if (!response.ok) return undefined;
+      const data: unknown = await response.json();
+      const candidates = (data as { models?: unknown })?.models;
+      if (!Array.isArray(candidates)) return undefined;
+      const models = candidates.filter((item): item is { name: string; size?: number } =>
+        !!item && typeof item === 'object' && typeof item.name === 'string' && /^[\w./:-]{1,150}$/.test(item.name));
+      models.sort((a, b) => (Number.isFinite(a.size) ? a.size! : Number.MAX_SAFE_INTEGER) -
+        (Number.isFinite(b.size) ? b.size! : Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name));
+      return models[0] ? this.add({ provider: 'ollama', model: models[0].name, priority: 100 }) : undefined;
+    } catch { return undefined; }
+  }
   add(input: { provider: Provider; model: string; priority: number; enabled?: boolean }): Model {
     if (!providers.includes(input.provider)) throw new Error('Provedor desconhecido');
     if (typeof input.model !== 'string' || !/^[\w./:-]{1,150}$/.test(input.model)) throw new Error('Nome de modelo inválido');

@@ -42,6 +42,33 @@ it('routes local fallback only to Ollama', async () => {
   expect(fetcher.mock.calls[0][0]).toBe('http://127.0.0.1:11434/v1/chat/completions');
 });
 
+it('discovers an installed Ollama model once and keeps a configured choice', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ models: [
+    { name: 'large:latest', size: 8_000_000_000 }, { name: 'small:latest', size: 1_000_000_000 },
+  ] }), { status: 200 }));
+  const r = router(fetcher);
+  expect(await r.discoverLocalModel()).toMatchObject({ provider: 'ollama', model: 'small:latest' });
+  expect(await r.discoverLocalModel()).toMatchObject({ model: 'small:latest' });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(new ModelRouter(r.file, fetcher).status().models).toHaveLength(1);
+});
+
+it('does not register an Ollama model without a valid local response', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ models: [{ name: '../invalid model' }] }), { status: 200 }));
+  const r = router(fetcher);
+  expect(await r.discoverLocalModel()).toBeUndefined();
+  expect(r.status().models).toHaveLength(0);
+});
+
+it('respects a deliberately disabled Ollama model', async () => {
+  const fetcher = vi.fn<typeof fetch>();
+  const r = router(fetcher);
+  const model = r.add({ provider: 'ollama', model: 'chosen:latest', priority: 1 });
+  r.update(model.id, { enabled: false });
+  expect(await r.discoverLocalModel()).toBeUndefined();
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
 it('uses Anthropic native Messages format and does not leak error body', async () => {
   const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ content: [{ type: 'text', text: 'Olá' }], usage: { input_tokens: 3, output_tokens: 1 } }), { status: 200 }));
   const r = router(fetcher, { ANTHROPIC_API_KEY: 'secret-c' });

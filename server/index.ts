@@ -375,6 +375,10 @@ const ticker = setInterval(() => {
   }
 }, 250);
 const hubRunner = codexBin ? createCodexQueueRunner(codexBin) : undefined;
+const discoverOllama = () => { void modelRouter.discoverLocalModel().catch((error) =>
+  log.warn(tr('Falha ao detectar modelo Ollama local: {0}', [errMsg(error)]))); };
+discoverOllama();
+const ollamaDiscoveryTimer = setInterval(discoverOllama, 30_000);
 let hubDispatchBusy = false;
 const hubDispatcher = setInterval(() => {
   const localAvailable = modelRouter.status().models.some((model) => model.provider === 'ollama' && model.enabled);
@@ -645,6 +649,7 @@ function shutdown(signal: string): void {
   log.info(tr('Encerrando ({0})…', [signal]));
   clearInterval(ticker);
   clearInterval(hubDispatcher);
+  clearInterval(ollamaDiscoveryTimer);
   clearInterval(jobSearchTimer);
   clearInterval(adminSessionTimer);
   clearInterval(connectionPublishTimer);
