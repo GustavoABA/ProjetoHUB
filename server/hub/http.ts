@@ -3,6 +3,7 @@ import { readJson, sendJson } from '../http/app';
 import type { HubStore } from './store';
 import { searchRemotive, type JobStore } from './jobs';
 import type { BrowserManager } from './browser';
+import type { ModelRouter, Provider, Message } from './router';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Corpo JSON inválido');
@@ -17,12 +18,36 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /** Routes are mounted only on the local server, after the normal Host/Origin guard. */
-export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager): boolean {
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter): boolean {
   const path = url.pathname;
   if (!path.startsWith('/api/hub/')) return false;
   const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
   if (remote !== '::1' && !/^127\./.test(remote ?? '')) {
     sendJson(res, 403, { error: 'Acesso permitido apenas neste computador' });
+    return true;
+  }
+  if (path === '/api/hub/router') {
+    if (req.method !== 'GET') sendJson(res, 405, { error: 'Método não permitido' });
+    else sendJson(res, 200, router?.status() ?? { models: [], usage: { inputTokens: 0, outputTokens: 0, requests: 0 } });
+    return true;
+  }
+  if (path.startsWith('/api/hub/router/')) {
+    if (!router) { sendJson(res, 503, { error: 'Roteador indisponível' }); return true; }
+    const action = path.slice('/api/hub/router/'.length);
+    if (action === 'models' && req.method === 'POST') void readJson(req).then((raw) => {
+      const body = record(raw);
+      sendJson(res, 201, router.add({ provider: string(body.provider, 'provedor') as Provider, model: string(body.model, 'modelo'), priority: Number(body.priority) }));
+    }).catch((error) => fail(res, error));
+    else if (action.startsWith('models/') && req.method === 'DELETE') sendJson(res, router.remove(action.slice(7)) ? 200 : 404, { ok: true });
+    else if (action.startsWith('models/') && req.method === 'PATCH') void readJson(req).then((raw) => {
+      const body = record(raw);
+      sendJson(res, 200, router.update(action.slice(7), { ...(body.priority !== undefined ? { priority: Number(body.priority) } : {}), ...(body.enabled !== undefined ? { enabled: body.enabled as boolean } : {}) }));
+    }).catch((error) => fail(res, error));
+    else if (action === 'complete' && req.method === 'POST') void readJson(req).then((raw) => {
+      const body = record(raw);
+      return router.complete(body.messages as Message[]);
+    }).then((result) => sendJson(res, 200, result)).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
   if (path === '/api/hub/browser') {

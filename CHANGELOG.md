@@ -17,6 +17,7 @@ do meio (0.**3**.0).
 - Equipe inicial "Procura de Emprego" configurada sem simular sessões ativas. Pesquisa manual de vagas remotas na fonte pública Remotive, com origem, deduplicação e limite de consultas.
 - Agenda persistente de busca de vagas a cada 6, 12 ou 24 horas, executada pelo servidor mesmo com a interface fechada.
 - Navegador Playwright com perfil próprio, modo visível ou em segundo plano, controle manual, várias páginas e capturas de tela.
+- Roteador local para seis provedores, com modelos persistentes, prioridades, fallback em falhas recuperáveis, contagem de tokens e teste manual no painel.
 
 ## [1.0.3] - 2026-10-16
 

@@ -5,6 +5,7 @@ type Source = { label: string; path: string; provider: string };
 type Job = { id: string; title: string; company: string; location: string; source: string; originalUrl: string; salary?: string; compatibility: number | null; applicationStatus: string };
 type Schedule = { query?: string; intervalHours?: number; enabled: boolean; nextRunAt?: string; lastError?: string };
 type BrowserStatus = { running: boolean; headless: boolean; manual: boolean; pages: { id: string; url: string }[] };
+type RouterStatus = { models: { id: string; provider: string; model: string; priority: number; enabled: boolean; available: boolean }[]; usage: { inputTokens: number; outputTokens: number; requests: number }; lastError?: string };
 const statusLabel: Record<string, string> = { unassigned: 'aguardando vínculo', queued: 'na fila', dispatching: 'enviando ao Codex', sent: 'instrução aceita pelo Codex', waiting_input: 'aguardando resposta', paused: 'pausada', done: 'concluída', failed: 'erro no envio', interrupted: 'envio interrompido; requer revisão' };
 
 const css = `
@@ -38,6 +39,10 @@ export function mountHubPanel(): void {
     <p>Fonte: Remotive. A consulta pública tem limite de quatro tentativas por dia; as vagas exibidas levam ao anúncio original.</p>
     <h3>Navegador</h3><div><button type="button" data-browser-visible>Abrir visível</button> <button type="button" data-browser-headless>Abrir em segundo plano</button> <button type="button" data-browser-manual>Assumir controle</button> <button type="button" data-browser-stop>Fechar</button></div>
     <form id="hub-browser-form"><label>Endereço<input name="url" type="url" required placeholder="https://..."></label><button>Abrir página</button></form><p id="hub-browser-status"></p><ul id="hub-browser-pages"></ul>
+    <h3>Modelos de IA</h3><p>Configure a chave do provedor no ambiente do serviço antes de iniciá-lo. A autenticação do Codex não é usada como chave de API.</p>
+    <form id="hub-model-form"><label>Provedor<select name="provider"><option value="openai">OpenAI · OPENAI_API_KEY</option><option value="anthropic">Anthropic · ANTHROPIC_API_KEY</option><option value="gemini">Gemini · GEMINI_API_KEY</option><option value="deepseek">DeepSeek · DEEPSEEK_API_KEY</option><option value="openrouter">OpenRouter · OPENROUTER_API_KEY</option><option value="ollama">Ollama local</option></select></label><label>Modelo<input name="model" required placeholder="Nome exato do modelo"></label><label>Prioridade<input name="priority" type="number" min="1" max="1000" value="1" required></label><button>Cadastrar modelo</button></form>
+    <p id="hub-router-status"></p><ul id="hub-models"></ul>
+    <form id="hub-model-test"><label>Teste do roteador<input name="prompt" maxlength="2000" required placeholder="Escreva uma pergunta"></label><button>Testar modelo</button></form><p id="hub-model-result"></p>
     <p id="projecthub-message" role="status"></p><h3>Agentes</h3><ul id="hub-agents"></ul><h3>Tarefas</h3><ul id="hub-tasks"></ul><h3>Vagas encontradas</h3><ul id="hub-jobs"></ul>`;
   document.body.append(open, panel);
   const message = panel.querySelector('#projecthub-message') as HTMLElement;
@@ -46,6 +51,8 @@ export function mountHubPanel(): void {
   const jobForm = panel.querySelector('#hub-job-form') as HTMLFormElement;
   const scheduleForm = panel.querySelector('#hub-schedule-form') as HTMLFormElement;
   const browserForm = panel.querySelector('#hub-browser-form') as HTMLFormElement;
+  const modelForm = panel.querySelector('#hub-model-form') as HTMLFormElement;
+  const modelTest = panel.querySelector('#hub-model-test') as HTMLFormElement;
   const sessions = agentForm.elements.namedItem('session') as HTMLSelectElement;
   const parents = agentForm.elements.namedItem('parent') as HTMLSelectElement;
   const agentsSelect = taskForm.elements.namedItem('agent') as HTMLSelectElement;
@@ -53,13 +60,24 @@ export function mountHubPanel(): void {
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
 
   async function refresh(): Promise<void> {
-    const [agents, tasks, jobs, schedule, browser, snapshot, health] = await Promise.all([
+    const [agents, tasks, jobs, schedule, browser, router, snapshot, health] = await Promise.all([
       api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'),
       api<Job[]>('/api/hub/jobs'),
       api<Schedule>('/api/hub/jobs/schedule'),
       api<BrowserStatus>('/api/hub/browser'),
+      api<RouterStatus>('/api/hub/router'),
       api<{ agents: Session[] }>('/api/snapshot'), api<{ sources: Source[] }>('/api/health'),
     ]);
+    (panel.querySelector('#hub-router-status') as HTMLElement).textContent = `${router.usage.requests} resposta(s) · ${router.usage.inputTokens} tokens de entrada · ${router.usage.outputTokens} tokens de saída · custo não calculado${router.lastError ? ` · Última falha: ${router.lastError}` : ''}`;
+    const modelList = panel.querySelector('#hub-models')!; modelList.replaceChildren();
+    for (const model of router.models) {
+      const li = document.createElement('li'); li.textContent = `${model.provider} / ${model.model} · prioridade ${model.priority} · ${!model.enabled ? 'desativado' : model.provider === 'ollama' ? 'serviço local não verificado' : model.available ? 'credencial detectada; acesso não verificado' : 'credencial ausente'} `;
+      const toggle = document.createElement('button'); toggle.textContent = model.enabled ? 'Desativar' : 'Ativar';
+      toggle.onclick = () => void api(`/api/hub/router/models/${model.id}`, { enabled: !model.enabled }, 'PATCH').then(refresh).catch(showError);
+      const remove = document.createElement('button'); remove.textContent = 'Remover';
+      remove.onclick = () => void api(`/api/hub/router/models/${model.id}`, {}, 'DELETE').then(refresh).catch(showError);
+      li.append(toggle, remove); modelList.append(li);
+    }
     (panel.querySelector('#hub-browser-status') as HTMLElement).textContent = browser.running
       ? `Navegador ${browser.headless ? 'em segundo plano' : 'visível'} · ${browser.manual ? 'controle manual ativo; automação suspensa' : 'automação disponível'}`
       : 'Navegador fechado. O perfil permanece salvo neste computador.';
@@ -114,7 +132,7 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
-    if (panel.hidden || agentForm.contains(document.activeElement) || taskForm.contains(document.activeElement) || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || taskForm.contains(document.activeElement) || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
@@ -135,4 +153,11 @@ export function mountHubPanel(): void {
   (panel.querySelector('[data-browser-manual]') as HTMLButtonElement).onclick = () => void api<BrowserStatus>('/api/hub/browser').then((status) => api('/api/hub/browser/manual', { manual: !status.manual })).then(refresh).catch(showError);
   browserForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(browserForm);
     void api('/api/hub/browser/pages', { url: data.get('url') }).then(refresh).catch(showError); };
+  modelForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(modelForm);
+    void api('/api/hub/router/models', { provider: data.get('provider'), model: data.get('model'), priority: Number(data.get('priority')) })
+      .then(() => { modelForm.reset(); message.textContent = 'Modelo cadastrado.'; return refresh(); }).catch(showError); };
+  modelTest.onsubmit = (event) => { event.preventDefault(); const data = new FormData(modelTest);
+    (panel.querySelector('#hub-model-result') as HTMLElement).textContent = 'Consultando modelo...';
+    void api<{ text: string; provider: string; model: string }>('/api/hub/router/complete', { messages: [{ role: 'user', content: data.get('prompt') }] })
+      .then((result) => { (panel.querySelector('#hub-model-result') as HTMLElement).textContent = `${result.provider} / ${result.model}: ${result.text}`; return refresh(); }).catch(showError); };
 }

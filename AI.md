@@ -12,7 +12,7 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 | Português brasileiro | Texto base em português e `shared/locales/` | Importado |
 | Windows 10 | Node e build em Windows atual; README original prioriza macOS/Linux | Inicializador Windows incluído; Windows 10 ainda sem validação específica |
 | Criação de agentes | Fluxo existente condicionado a `HABBLAUD_PTY=1` e CLI | Cadastro persistente de nome/objetivo e subagentes no painel local; execução própria ainda parcial |
-| Roteador multi-IA | Não encontrado | Pendente |
+| Roteador multi-IA | Não encontrado | Cadastro local de modelos, seleção por prioridade, fallback e contagem de tokens; credenciais via ambiente; ainda sem prova com provedor real |
 | Navegador Playwright para agentes | `playwright-core` já aparecia como dependência de desenvolvimento | Gerenciador local com Edge real, perfil dedicado, páginas, capturas e controle manual; automação de candidaturas pendente |
 | Vagas e candidaturas | Não encontrado | Busca manual Remotive, persistência e deduplicação de vagas; avaliação e candidaturas pendentes |
 | Evolution API / WhatsApp | Não encontrado | Pendente |
@@ -34,6 +34,8 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 - A instalação local informa `codex-cli 0.166.0-alpha.5.1`; `codex queue --help` confirma `--thread` e `--message`. Ainda não foi enviado comando real nesta fase, portanto a entrega e a conclusão de um trabalho Codex permanecem sem validação de ponta a ponta.
 - Pesquisa de vagas: 15 testes do módulo `server/hub/` passaram, além de checagem de tipos e build. Uma consulta real `assistant` à Remotive retornou 12 anúncios com URLs de origem. Após reiniciar o servidor isolado, `GET /api/hub/jobs` retornou os mesmos 12 registros. Os resultados são anúncios encontrados, **não** vagas recomendadas nem candidaturas iniciadas; a busca da fonte também examina descrições e pode trazer cargos fora do termo pesquisado.
 - Navegador: 18 testes do módulo `server/hub/` passaram, além de checagem de tipos e build. Em Windows, o Microsoft Edge iniciou em modo em segundo plano pela API, abriu uma página local e gerou uma captura PNG de 108.090 bytes. O modo visível iniciou, o controle manual suspendeu a automação (HTTP 409) e um teste separado confirmou que um cookie persistente permaneceu após fechar e reabrir o Edge com o mesmo perfil. Cookies de sessão sem validade persistente não foram validados para recuperação.
+- Roteador: 22 testes do módulo `server/hub/` passaram, incluindo quatro testes específicos de fallback HTTP 429, contexto, Anthropic, persistência de tokens, ausência de credenciais e erro não recuperável. `npm run typecheck` e `npm run build` passaram. As respostas dos provedores foram simuladas; **nenhuma chamada real de modelo foi validada**.
+- O servidor isolado na porta 4763 respondeu a `GET /api/hub/router`, cadastrou um modelo por `POST`, atualizou seu estado por `PATCH` e o removeu por `DELETE`. Nenhuma chave estava presente nesse processo de verificação, então o modelo apareceu com credencial ausente; nenhuma requisição de inferência foi feita.
 
 ## Fase 2 em andamento
 
@@ -59,6 +61,14 @@ O Playwright não burla CAPTCHA ou verificações. Login manual é feito na jane
 
 `docker build` e a inicialização da imagem passaram com `playwright-core` como dependência de produção. A imagem não inclui um navegador Chromium e as rotas de controle do ProjetoHUB recusam conexões que chegam pelo gateway Docker (HTTP 403); para usar este navegador, rode o serviço Node diretamente no Windows. Liberar controle pelo Docker exigirá autenticação própria e configuração de navegador na imagem, ainda pendentes.
 
+## Roteador de IA
+
+`server/hub/router.ts` oferece adaptadores para OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter e Ollama. Anthropic usa Messages; os demais usam Chat Completions. Os endpoints são fixos, e Ollama aponta apenas para `127.0.0.1:11434`. O painel cadastra modelos, define prioridade, ativa/desativa, remove e faz uma consulta manual. `POST /api/hub/router/complete` usa o primeiro modelo com credencial disponível e passa o **mesmo contexto** ao próximo quando há erro de rede, HTTP 429 ou HTTP 5xx. Erros HTTP 400/401/403/404/422 interrompem a chamada para evitar esconder problemas da requisição ou autenticação. O estado fica em `<dataDir>/projecthub/router.json` com gravação atômica. Guarda modelos, estado, prioridades e contadores de tokens, sem prompts, respostas ou chaves. A contagem de custo monetário ainda não foi implementada, pois preços variam por modelo e provedor; o painel indica custo não calculado.
+
+Configure as variáveis `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY` e/ou `OPENROUTER_API_KEY` no ambiente do **processo servidor** antes da inicialização. Ollama não usa chave e requer serviço local próprio. A indicação de disponibilidade significa apenas que existe chave no ambiente (ou, para Ollama, que não é exigida); não é um teste de saúde nem confirma acesso ao modelo. O teste manual no painel envia a pergunta ao provedor e pode gerar cobrança. A autenticação do Codex não é reutilizada. Não há formulário de cadastro protegido de chaves ainda; esse recurso e limites por agente/provedor seguem pendentes.
+
+Escolha técnica: [LiteLLM](https://docs.litellm.ai/docs/proxy/architecture) é uma opção para roteamento amplo, mas adicionaria um processo Python e administração de segredos separados ao serviço Node existente. Foi implementado primeiro um roteador Node pequeno com endpoints oficiais fixos. A integração com LiteLLM, catálogo dinâmico e políticas de fallback mais amplas continuam abertas. Gemini usa a [compatibilidade OpenAI documentada pelo Google](https://ai.google.dev/gemini-api/docs/openai), que está em beta e pode não cobrir todos os recursos nativos.
+
 ## Execução local
 
 No PowerShell, dentro do repositório, execute `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-windows.ps1`. O script verifica Node 22.12+, instala dependências apenas quando ausentes, compila apenas quando faltam os artefatos, inicia o servidor em segundo plano, verifica a saúde e abre o Microsoft Edge maximizado em modo aplicativo. Use `-Window` para abrir em modo janela. Logs do processo iniciado ficam em `%LOCALAPPDATA%\ProjetoHUB\logs`. O script não configura inicialização automática com Windows.
@@ -70,7 +80,7 @@ O endereço local é `http://127.0.0.1:4747`. Não exponha a porta original dire
 1. Resolver ou classificar os 19 testes que falham no Windows, sem reduzir proteções de arquivos em plataformas POSIX.
 2. Validar o fluxo de hooks e mensagens Codex com as APIs oficialmente disponíveis nesta versão; a detecção de sessão já foi validada.
 3. Completar o orquestrador persistente: reconciliar resultados reais do Codex, edição de agentes, retentativas seguras, prioridades, perguntas e recuperação.
-4. Adicionar roteador de provedores e Playwright, depois vagas, candidaturas, WhatsApp e MCP autenticado. Cada integração externa requer configuração legítima e teste real antes de ser marcada funcional.
+4. Validar um provedor real configurado, acrescentar limites/custos/credenciais protegidas, depois avaliação de vagas, candidaturas, WhatsApp e MCP autenticado. Cada integração externa requer configuração legítima e teste real antes de ser marcada funcional.
 
 Nenhuma candidatura, mensagem WhatsApp, túnel ngrok ou comando MCP foi executado nesta fase. Nenhuma credencial foi lida para integrar provedores externos.
 
