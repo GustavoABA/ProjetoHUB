@@ -1,5 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 export type NgrokStatus = { installed: boolean; running: boolean; publicUrl?: string; mcpUrl?: string; checkedAt?: string; error?: string };
 
@@ -26,7 +27,15 @@ function findNgrok(): string | undefined {
   if (configured) return existsSync(configured) ? configured : undefined;
   const finder = process.platform === 'win32' ? 'where.exe' : 'which';
   const found = spawnSync(finder, ['ngrok'], { encoding: 'utf8', windowsHide: true, timeout: 2_000 });
-  return found.status === 0 ? found.stdout.trim().split(/\r?\n/)[0] : undefined;
+  if (found.status === 0) return found.stdout.trim().split(/\r?\n/)[0];
+  if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
+    const packages = join(process.env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Packages');
+    if (existsSync(packages)) for (const entry of readdirSync(packages).filter((name) => name.startsWith('Ngrok.Ngrok_'))) {
+      const candidate = join(packages, entry, 'ngrok.exe');
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return undefined;
 }
 
 export class NgrokManager {
@@ -61,6 +70,8 @@ export class NgrokManager {
     try {
       if (!this.binary) { this.update({ installed: false, running: false, error: 'ngrok não encontrado; instale e configure o agente' }); return this.status(); }
       if (!this.child || this.child.exitCode !== null || this.child.killed) {
+        const config = spawnSync(this.binary, ['config', 'check'], { windowsHide: true, stdio: 'ignore', timeout: 5_000 });
+        if (config.status !== 0) { this.update({ installed: true, running: false, error: 'Configuração ngrok ausente ou inválida; configure a conta no agente' }); return this.status(); }
         const child = spawn(this.binary, ['http', String(this.port), '--log=stdout', '--log-format=json', '--log-level=warn'],
           { windowsHide: true, stdio: 'ignore' });
         this.child = child;

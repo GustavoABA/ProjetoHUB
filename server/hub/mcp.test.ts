@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test } from 'vitest';
@@ -19,9 +19,10 @@ test('MCP exige chave, rejeita Origin desconhecida e executa ferramentas autenti
   const key = keys.rotate();
   expect(key).toMatch(/^phub_[a-f0-9]{64}$/);
   expect(JSON.stringify(keys)).not.toContain(key);
+  const allowedHosts = ['127.0.0.1'];
   const handler = createMcpRequestHandler({ hub, jobs: new JobStore(join(dir, 'jobs.json')),
     applications: new ApplicationStore(join(dir, 'applications.json')),
-    router: new ModelRouter(join(dir, 'router.json')), keys, allowedHosts: ['127.0.0.1'] });
+    router: new ModelRouter(join(dir, 'router.json')), keys, allowedHosts });
   const server = createServer(handler);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const addr = server.address(); if (!addr || typeof addr === 'string') throw new Error('Sem porta');
@@ -37,6 +38,18 @@ test('MCP exige chave, rejeita Origin desconhecida e executa ferramentas autenti
     const listed = await post('tools/list', {}, key);
     expect(listed.status).toBe(200);
     expect(await listed.text()).toContain('criar_agente');
+    const hosted = () => new Promise<number>((resolve, reject) => {
+      const req = request({ hostname: '127.0.0.1', port: addr.port, path: '/mcp', method: 'POST', headers: { host: 'office.ngrok.app', authorization: `Bearer ${key}`,
+        'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-11-25' } }, (response) => {
+        response.resume(); response.on('end', () => resolve(response.statusCode ?? 0));
+      });
+      req.on('error', reject); req.end(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }));
+    });
+    expect(await hosted()).toBe(403);
+    allowedHosts.push('office.ngrok.app');
+    expect(await hosted()).toBe(200);
+    allowedHosts.pop();
+    expect(await hosted()).toBe(403);
     const created = await post('tools/call', { name: 'criar_agente', arguments: { nome: 'Pesquisa', objetivo: 'Encontrar vagas' } }, key);
     expect(created.status).toBe(200);
     expect(hub.listAgents()).toMatchObject([{ name: 'Pesquisa' }]);

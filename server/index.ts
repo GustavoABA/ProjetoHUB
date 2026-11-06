@@ -498,9 +498,8 @@ if (Number.isInteger(mcpPort) && mcpPort > 0 && mcpPort <= 65_535 && mcpPort !==
   ngrokManager = new NgrokManager(mcpPort, (status) => {
     const newHost = status.running && status.publicUrl ? new URL(status.publicUrl).hostname : undefined;
     if (newHost === activeTunnelHost) return;
-    if (activeTunnelHost) allowedHosts.splice(allowedHosts.indexOf(activeTunnelHost), 1);
     activeTunnelHost = newHost;
-    if (activeTunnelHost) allowedHosts.push(activeTunnelHost);
+    allowedHosts.splice(0, allowedHosts.length, '127.0.0.1', 'localhost', ...(publicHost ? [publicHost] : []), ...(activeTunnelHost && activeTunnelHost !== publicHost ? [activeTunnelHost] : []));
     if (status.running && status.mcpUrl) log.info(`MCP público verificado em ${status.mcpUrl}`);
     publishConnection();
   });
