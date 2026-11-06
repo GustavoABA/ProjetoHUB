@@ -4,6 +4,7 @@ import type { HubStore } from './store';
 import { searchRemotive, type JobStore } from './jobs';
 import type { BrowserManager } from './browser';
 import type { ModelRouter, Provider, Message } from './router';
+import type { ApplicationStore } from './applications';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Corpo JSON inválido');
@@ -18,7 +19,7 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /** Routes are mounted only on the local server, after the normal Host/Origin guard. */
-export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter): boolean {
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore): boolean {
   const path = url.pathname;
   if (!path.startsWith('/api/hub/')) return false;
   const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
@@ -54,6 +55,7 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     if (req.method === 'GET') sendJson(res, 200, store.listQuestions());
     else if (req.method === 'POST') void readJson(req).then((raw) => {
       const body = record(raw);
+      if (body.applicationId !== undefined && !applications?.get(string(body.applicationId, 'candidatura'))) throw new Error('Candidatura não encontrada');
       sendJson(res, 201, store.askQuestion({ taskId: string(body.taskId, 'tarefa'), text: string(body.text, 'pergunta'),
         ...(body.applicationId === undefined ? {} : { applicationId: string(body.applicationId, 'candidatura') }),
         ...(body.deadline === undefined ? {} : { deadline: string(body.deadline, 'prazo') }) }));
@@ -65,6 +67,34 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
   if (questionAction) {
     if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
     else void readJson(req).then((raw) => sendJson(res, 200, store.answerQuestion(questionAction[1], string(record(raw).answer, 'resposta')))).catch((error) => fail(res, error));
+    return true;
+  }
+  if (path === '/api/hub/applications') {
+    if (!applications || !jobs) sendJson(res, 503, { error: 'Candidaturas indisponíveis' });
+    else if (req.method === 'GET') sendJson(res, 200, applications.list());
+    else if (req.method === 'POST') void readJson(req).then((raw) => {
+      const jobId = string(record(raw).jobId, 'vaga');
+      const job = jobs.list().find((v) => v.id === jobId);
+      if (!job) { sendJson(res, 404, { error: 'Vaga não encontrada' }); return; }
+      sendJson(res, 201, applications.create({ jobId: job.id, source: job.source, sourceId: job.sourceId, originalUrl: job.originalUrl, title: job.title, company: job.company }));
+    }).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  const applicationAction = /^\/api\/hub\/applications\/([0-9a-f-]+)\/(answers|request-approval|approve|deny)$/.exec(path);
+  if (applicationAction) {
+    if (!applications) sendJson(res, 503, { error: 'Candidaturas indisponíveis' });
+    else if (applicationAction[2] === 'answers' && req.method === 'PUT') void readJson(req).then((raw) => {
+      sendJson(res, 200, applications.setAnswers(applicationAction[1], record(record(raw).answers) as Record<string, string>));
+    }).catch((error) => fail(res, error));
+    else if (req.method === 'POST' && applicationAction[2] !== 'answers') {
+      req.resume();
+      try {
+        const app = applicationAction[2] === 'request-approval' ? applications.requestApproval(applicationAction[1])
+          : applicationAction[2] === 'approve' ? applications.approve(applicationAction[1]) : applications.deny(applicationAction[1]);
+        sendJson(res, 200, app);
+      } catch (error) { fail(res, error); }
+    } else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
   if (path === '/api/hub/browser') {
@@ -111,7 +141,10 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
   }
   if (path === '/api/hub/jobs') {
     if (req.method !== 'GET') sendJson(res, 405, { error: 'Método não permitido' });
-    else sendJson(res, 200, jobs?.list() ?? []);
+    else {
+      const byJob = new Map(applications?.list().map((app) => [app.jobId, app.status]) ?? []);
+      sendJson(res, 200, jobs?.list().map((job) => ({ ...job, applicationStatus: byJob.get(job.id) ?? job.applicationStatus })) ?? []);
+    }
     return true;
   }
   if (path === '/api/hub/jobs/schedule') {

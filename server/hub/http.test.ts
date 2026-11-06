@@ -6,8 +6,9 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { HubStore } from './store';
 import { handleHubRoute } from './http';
-import { JobStore } from './jobs';
+import { JobStore, searchRemotive } from './jobs';
 import { BrowserManager } from './browser';
+import { ApplicationStore } from './applications';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -76,6 +77,33 @@ it('saves a periodic search configuration through the local API', async () => {
     expect(response.status).toBe(200);
     expect((await (await fetch(base + '/api/hub/jobs/schedule')).json())).toMatchObject({ query: 'suporte', intervalHours: 12, enabled: true });
     expect(new JobStore(join(dir, 'jobs.json')).schedule()?.query).toBe('suporte');
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+it('prepares one application from a sourced vacancy and requires explicit approval', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
+  const agents = new HubStore(join(dir, 'state.json'));
+  const jobs = new JobStore(join(dir, 'jobs.json'));
+  const applications = new ApplicationStore(join(dir, 'applications.json'));
+  await searchRemotive(jobs, 'assistant', async () => new Response(JSON.stringify({ jobs: [{ id: 72, url: 'https://remotive.com/remote-jobs/support/assistant-72', title: 'Assistant', company_name: 'Acme', description: 'Support' }] }), { status: 200 }));
+  const server = http.createServer((req, res) => { handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), agents, jobs, fetch, undefined, undefined, applications); });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const base = `http://127.0.0.1:${address.port}`;
+    const request = (path: string, method: string, body: unknown = {}) => fetch(base + path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const jobId = jobs.list()[0].id;
+    expect((await request('/api/hub/applications', 'POST', { jobId: 'missing' })).status).toBe(404);
+    const created = await request('/api/hub/applications', 'POST', { jobId });
+    expect(created.status).toBe(201); const app = await created.json();
+    expect((await request('/api/hub/applications', 'POST', { jobId })).status).toBe(400);
+    expect((await request(`/api/hub/applications/${app.id}/request-approval`, 'POST')).status).toBe(400);
+    expect((await request(`/api/hub/applications/${app.id}/answers`, 'PUT', { answers: { Experiência: 'Sem experiência formal' } })).status).toBe(200);
+    expect((await request(`/api/hub/applications/${app.id}/request-approval`, 'POST')).status).toBe(200);
+    expect((await request(`/api/hub/applications/${app.id}/approve`, 'POST')).status).toBe(200);
+    expect((await (await fetch(base + '/api/hub/applications')).json())[0].status).toBe('approved');
+    expect((await (await fetch(base + '/api/hub/jobs')).json())[0].applicationStatus).toBe('approved');
+    expect(new ApplicationStore(join(dir, 'applications.json')).list()[0].status).toBe('approved');
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 

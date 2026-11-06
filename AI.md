@@ -14,7 +14,7 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 | Criação de agentes | Fluxo existente condicionado a `HABBLAUD_PTY=1` e CLI | Cadastro persistente de nome/objetivo e subagentes no painel local; execução própria ainda parcial |
 | Roteador multi-IA | Não encontrado | Cadastro local de modelos, seleção por prioridade, fallback e contagem de tokens; credenciais via ambiente; ainda sem prova com provedor real |
 | Navegador Playwright para agentes | `playwright-core` já aparecia como dependência de desenvolvimento | Gerenciador local com Edge real, perfil dedicado, páginas, capturas e controle manual; automação de candidaturas pendente |
-| Vagas e candidaturas | Não encontrado | Busca manual Remotive, persistência e deduplicação de vagas; avaliação e candidaturas pendentes |
+| Vagas e candidaturas | Não encontrado | Busca manual Remotive, persistência e deduplicação; rascunho e aprovação de candidatura persistentes; avaliação e envio pendentes |
 | Evolution API / WhatsApp | Não encontrado | Pendente |
 | MCP remoto, ngrok e registro de conexão | Há recursos remotos próprios do Habblaud, mas não o MCP solicitado | Pendente; nenhuma URL ou credencial publicada |
 | Persistência operacional | Configurações e histórico do Habblaud | Estado local de agentes, tarefas e perguntas com gravação atômica; execução e backups ainda parciais ou pendentes |
@@ -38,6 +38,7 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 - O servidor isolado na porta 4763 respondeu a `GET /api/hub/router`, cadastrou um modelo por `POST`, atualizou seu estado por `PATCH` e o removeu por `DELETE`. Nenhuma chave estava presente nesse processo de verificação, então o modelo apareceu com credencial ausente; nenhuma requisição de inferência foi feita.
 - Em uma segunda execução isolada na porta 4763, o Ollama instalado neste Windows listou `qwen2.5:1.5b`. O painel/API cadastrou esse modelo e `POST /api/hub/router/complete` recebeu `OK` de uma inferência real; o serviço informou 38 tokens de entrada e 2 de saída. O arquivo local `router.json` continuou com o modelo e os contadores após encerrar o servidor. Isso valida Ollama neste computador, mas não os demais provedores nem a recuperação automática de um processo que caiu durante uma chamada.
 - Perguntas: 25 testes do módulo `server/hub/` passaram. Em servidor isolado na porta 4764, a API criou duas tarefas, colocou somente a primeira em `waiting_input`, registrou a resposta e devolveu somente essa tarefa a `unassigned`. O arquivo de estado guarda a pergunta e a resposta. O teste não envolveu WhatsApp nem candidatura real.
+- Candidaturas: 30 testes do módulo `server/hub/` passaram, incluindo criação pela API a partir de uma vaga com origem, bloqueio de duplicata, exigência de resposta confirmada e aprovação explícita. O teste de integração usa uma resposta Remotive simulada; nenhuma candidatura real foi iniciada ou enviada.
 
 ## Fase 2 em andamento
 
@@ -53,7 +54,9 @@ O servidor cria uma configuração inativa "Procura de Emprego" com seis subagen
 
 O painel permite ativar uma pesquisa periódica a cada 6, 12 ou 24 horas. O servidor guarda a próxima execução antes da chamada externa, evitando repetição imediata após queda; erros ficam visíveis na configuração. A agenda não foi ligada no ambiente de teste real e seu disparo automático foi verificado com fonte simulada. A busca manual real e a persistência foram verificadas separadamente.
 
-Cada vaga possui empresa, cargo, localidade, modalidade remota, salário quando publicado, descrição em texto, data de descoberta, URL, estado de candidatura e campos de avaliação. Requisitos e compatibilidade permanecem vazios/indeterminados até análise real e currículo confirmado. Filtros completos, mais fontes, análise, controle de candidatura e confirmação humana seguem pendentes.
+Cada vaga possui empresa, cargo, localidade, modalidade remota, salário quando publicado, descrição em texto, data de descoberta, URL, estado de candidatura e campos de avaliação. Requisitos e compatibilidade permanecem vazios/indeterminados até análise real e currículo confirmado. Filtros completos, mais fontes, análise e envio comprovado de candidaturas seguem pendentes.
+
+`server/hub/applications.ts` guarda uma candidatura por vaga de origem em `<dataDir>/projecthub/applications.json`. A API e o painel criam um rascunho apenas para vaga já registrada, aceitam respostas digitadas/confirmadas pelo usuário, solicitam aprovação, permitem aprovar ou recusar e mantêm um histórico de transições. Alterar respostas invalida a aprovação anterior. O estado mostrado em `/api/hub/jobs` reflete o rascunho ou aprovação vinculados. **Aprovação significa somente que o preparo foi aprovado; não há envio automático implementado nem estado `submitted` nesta fase.** O arquivo é local e criado com gravação atômica; no Windows, a proteção de dados pessoais em repouso ainda requer implementação adicional. O formulário recusa campos de senha, token ou chave, e não deve ser usado para credenciais de login. Faltam captura de dados profissionais confirmados em um perfil estruturado, formulários específicos, intervenção no navegador, confirmação de envio e evidência do portal.
 
 ## Navegador
 
@@ -84,7 +87,7 @@ O endereço local é `http://127.0.0.1:4747`. Não exponha a porta original dire
 1. Resolver ou classificar os 19 testes que falham no Windows, sem reduzir proteções de arquivos em plataformas POSIX.
 2. Validar o fluxo de hooks e mensagens Codex com as APIs oficialmente disponíveis nesta versão; a detecção de sessão já foi validada.
 3. Completar o orquestrador persistente: reconciliar resultados reais do Codex, edição de agentes, retentativas seguras, prioridades e recuperação.
-4. Validar provedores externos configurados, acrescentar limites/custos/credenciais protegidas, depois avaliação de vagas, candidaturas, WhatsApp e MCP autenticado. Cada integração externa requer configuração legítima e teste real antes de ser marcada funcional.
+4. Validar provedores externos configurados, acrescentar limites/custos/credenciais protegidas, depois avaliação de vagas, execução de candidaturas aprovadas com confirmação do portal, WhatsApp e MCP autenticado. Cada integração externa requer configuração legítima e teste real antes de ser marcada funcional.
 
 Nenhuma candidatura, mensagem WhatsApp, túnel ngrok ou comando MCP foi executado nesta fase. Nenhuma credencial foi lida para integrar provedores externos.
 

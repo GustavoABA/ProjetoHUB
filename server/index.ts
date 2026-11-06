@@ -64,6 +64,7 @@ import { dispatchNext } from './hub/dispatcher';
 import { JobStore, runScheduledSearch } from './hub/jobs';
 import { BrowserManager } from './hub/browser';
 import { ModelRouter } from './hub/router';
+import { ApplicationStore } from './hub/applications';
 
 const config = loadConfig();
 const startedAt = Date.now();
@@ -85,6 +86,7 @@ projectHub.ensureJobSearchTeam();
 const jobStore = new JobStore(join(config.dataDir, 'projecthub', 'jobs.json'));
 const browserManager = new BrowserManager({ profileDir: join(config.dataDir, 'projecthub', 'browser-profile'), logFile: join(config.dataDir, 'projecthub', 'navigation.jsonl') });
 const modelRouter = new ModelRouter(join(config.dataDir, 'projecthub', 'router.json'));
+const applicationStore = new ApplicationStore(join(config.dataDir, 'projecthub', 'applications.json'));
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
@@ -438,7 +440,7 @@ server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
-    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter) && !api(req, res, url)) fallback(req, res, url);
+    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore) && !api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(tr('Erro ao responder {0} {1}: {2}', [req.method, url.pathname, errMsg(err)]));
     if (!res.headersSent) sendJson(res, 500, { error: tr('erro interno') });
