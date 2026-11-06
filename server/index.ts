@@ -61,6 +61,7 @@ import { WorldViewer } from './world/viewer';
 import { HubStore } from './hub/store';
 import { handleHubRoute } from './hub/http';
 import { dispatchNext } from './hub/dispatcher';
+import { JobStore } from './hub/jobs';
 
 const config = loadConfig();
 const startedAt = Date.now();
@@ -78,6 +79,8 @@ if (legacyEnv) log.warn(legacyEnv);
 const names = new NameStore(join(config.dataDir, 'names.json'));
 names.load();
 const projectHub = new HubStore(join(config.dataDir, 'projecthub', 'state.json'));
+projectHub.ensureJobSearchTeam();
+const jobStore = new JobStore(join(config.dataDir, 'projecthub', 'jobs.json'));
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
@@ -426,7 +429,7 @@ server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
-    if (!handleHubRoute(req, res, url, projectHub) && !api(req, res, url)) fallback(req, res, url);
+    if (!handleHubRoute(req, res, url, projectHub, jobStore) && !api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(tr('Erro ao responder {0} {1}: {2}', [req.method, url.pathname, errMsg(err)]));
     if (!res.headersSent) sendJson(res, 500, { error: tr('erro interno') });

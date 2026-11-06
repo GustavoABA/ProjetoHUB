@@ -11,6 +11,7 @@ export interface HubAgent {
   codexThread?: string;
   codexHome?: string;
   createdAt: string;
+  systemKey?: string;
 }
 export interface HubTask {
   id: string;
@@ -51,6 +52,32 @@ export class HubStore {
   listAgents(): HubAgent[] { return structuredClone(this.state.agents); }
   listTasks(): HubTask[] { return structuredClone(this.state.tasks); }
   agent(id: string): HubAgent | undefined { const a = this.state.agents.find((v) => v.id === id); return a && structuredClone(a); }
+
+  /** Default job team is configuration only; no session or activity is invented. */
+  ensureJobSearchTeam(): void {
+    const roles = [
+      ['researcher', 'Pesquisador de vagas', 'Encontrar vagas em fontes autorizadas e registrar a origem.'],
+      ['requirements', 'Analista de requisitos', 'Extrair requisitos sem inventar informações.'],
+      ['compatibility', 'Avaliador de compatibilidade com currículo', 'Comparar requisitos com informações confirmadas do currículo.'],
+      ['applications', 'Especialista em candidaturas', 'Preparar candidaturas e aguardar aprovação antes do envio.'],
+      ['whatsapp', 'Comunicador WhatsApp', 'Comunicar pendências e resultados por canal configurado.'],
+      ['history', 'Gerenciador de histórico e duplicatas', 'Evitar vagas e candidaturas duplicadas.'],
+    ] as const;
+    let changed = false;
+    let main = this.state.agents.find((a) => a.systemKey === 'job-search');
+    if (!main) {
+      main = { id: randomUUID(), name: 'Procura de Emprego', objective: 'Pesquisar vagas, avaliar compatibilidade e preparar candidaturas autorizadas.', createdAt: new Date().toISOString(), systemKey: 'job-search' };
+      this.state.agents.push(main);
+      changed = true;
+    }
+    for (const [key, name, objective] of roles) {
+      const systemKey = `job-search/${key}`;
+      if (this.state.agents.some((a) => a.systemKey === systemKey)) continue;
+      this.state.agents.push({ id: randomUUID(), name, objective, parentId: main.id, systemKey, createdAt: new Date().toISOString() });
+      changed = true;
+    }
+    if (changed) this.save();
+  }
 
   createAgent(input: { name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string }): HubAgent {
     const name = required(input.name, 'nome', 100);

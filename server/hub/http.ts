@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readJson, sendJson } from '../http/app';
 import type { HubStore } from './store';
+import { searchRemotive, type JobStore } from './jobs';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Corpo JSON inválido');
@@ -15,12 +16,30 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /** Routes are mounted only on the local server, after the normal Host/Origin guard. */
-export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore): boolean {
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch): boolean {
   const path = url.pathname;
   if (!path.startsWith('/api/hub/')) return false;
   const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
   if (remote !== '::1' && !/^127\./.test(remote ?? '')) {
     sendJson(res, 403, { error: 'Acesso permitido apenas neste computador' });
+    return true;
+  }
+  if (path === '/api/hub/jobs') {
+    if (req.method !== 'GET') sendJson(res, 405, { error: 'Método não permitido' });
+    else sendJson(res, 200, jobs?.list() ?? []);
+    return true;
+  }
+  if (path === '/api/hub/jobs/search') {
+    if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
+    else if (!jobs) sendJson(res, 503, { error: 'Pesquisa de vagas indisponível' });
+    else void readJson(req).then((raw) => {
+      const body = record(raw);
+      return searchRemotive(jobs, string(body.query, 'pesquisa'), fetcher);
+    }).then((result) => sendJson(res, 200, result)).catch((error) => {
+      if (res.headersSent) return;
+      const message = error instanceof Error ? error.message : 'Falha de pesquisa';
+      sendJson(res, message.startsWith('Limite diário') ? 429 : message.startsWith('Remotive respondeu') ? 502 : 400, { error: message });
+    });
     return true;
   }
   if (path === '/api/hub/agents') {

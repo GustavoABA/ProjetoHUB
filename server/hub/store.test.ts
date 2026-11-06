@@ -47,3 +47,16 @@ it('keeps separate tasks independent and rejects invalid relationships', () => {
   store.setTaskStatus(one.id, 'waiting_input');
   expect(store.listTasks().find((t) => t.id === two.id)?.status).toBe('unassigned');
 });
+
+it('installs the job-search team once as inactive configurations', () => {
+  const path = fixture();
+  const store = new HubStore(path);
+  store.ensureJobSearchTeam();
+  store.ensureJobSearchTeam();
+  const agents = new HubStore(path).listAgents();
+  expect(agents).toHaveLength(7);
+  const main = agents.find((a) => a.name === 'Procura de Emprego');
+  expect(main).toBeDefined();
+  expect(agents.filter((a) => a.parentId === main!.id)).toHaveLength(6);
+  expect(agents.every((a) => !a.codexThread)).toBe(true);
+});
