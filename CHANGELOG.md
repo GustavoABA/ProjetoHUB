@@ -10,6 +10,11 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado no ProjetoHUB
+
+- Painel local para cadastrar agentes e subagentes, vincular sessões Codex existentes e criar ou pausar tarefas.
+- Estado persistente de agentes e tarefas com registro separado de instruções aceitas pela fila do Codex.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

@@ -58,6 +58,9 @@ import { OwnerSocial } from './world/social';
 import { BuildingTokens } from './world/tokens';
 import { BuildingUplink } from './world/uplink';
 import { WorldViewer } from './world/viewer';
+import { HubStore } from './hub/store';
+import { handleHubRoute } from './hub/http';
+import { dispatchNext } from './hub/dispatcher';
 
 const config = loadConfig();
 const startedAt = Date.now();
@@ -74,6 +77,7 @@ if (legacyEnv) log.warn(legacyEnv);
 
 const names = new NameStore(join(config.dataDir, 'names.json'));
 names.load();
+const projectHub = new HubStore(join(config.dataDir, 'projecthub', 'state.json'));
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
@@ -337,6 +341,15 @@ const ticker = setInterval(() => {
     log.warnOnce(`tick:${errMsg(err)}`, tr('Falha no relógio do escritório: {0}', [errMsg(err)]));
   }
 }, 250);
+const hubRunner = codexBin ? createCodexQueueRunner(codexBin) : undefined;
+let hubDispatchBusy = false;
+const hubDispatcher = setInterval(() => {
+  if (!hubRunner || hubDispatchBusy) return;
+  hubDispatchBusy = true;
+  void dispatchNext(projectHub, hubRunner)
+    .catch((error) => log.warn(tr('Falha ao enviar tarefa do ProjetoHUB: {0}', [errMsg(error)])))
+    .finally(() => { hubDispatchBusy = false; });
+}, 2_000);
 
 const api = createApiHandler({
   renameRoom: (id, name) => {
@@ -413,7 +426,7 @@ server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
-    if (!api(req, res, url)) fallback(req, res, url);
+    if (!handleHubRoute(req, res, url, projectHub) && !api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(tr('Erro ao responder {0} {1}: {2}', [req.method, url.pathname, errMsg(err)]));
     if (!res.headersSent) sendJson(res, 500, { error: tr('erro interno') });
@@ -545,6 +558,7 @@ function shutdown(signal: string): void {
   shuttingDown = true;
   log.info(tr('Encerrando ({0})…', [signal]));
   clearInterval(ticker);
+  clearInterval(hubDispatcher);
   stats.stop();
   agents.stop();
   accounts.stop();

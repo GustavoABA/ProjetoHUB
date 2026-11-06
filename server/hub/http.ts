@@ -1,0 +1,65 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { readJson, sendJson } from '../http/app';
+import type { HubStore } from './store';
+
+function record(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Corpo JSON inválido');
+  return value as Record<string, unknown>;
+}
+function string(value: unknown, label: string): string {
+  if (typeof value !== 'string') throw new Error(`${label} deve ser texto`);
+  return value;
+}
+function fail(res: ServerResponse, error: unknown): void {
+  if (!res.headersSent) sendJson(res, 400, { error: error instanceof Error ? error.message : 'Requisição inválida' });
+}
+
+/** Routes are mounted only on the local server, after the normal Host/Origin guard. */
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore): boolean {
+  const path = url.pathname;
+  if (!path.startsWith('/api/hub/')) return false;
+  const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
+  if (remote !== '::1' && !/^127\./.test(remote ?? '')) {
+    sendJson(res, 403, { error: 'Acesso permitido apenas neste computador' });
+    return true;
+  }
+  if (path === '/api/hub/agents') {
+    if (req.method === 'GET') sendJson(res, 200, store.listAgents());
+    else if (req.method === 'POST') void readJson(req).then((raw) => {
+      const body = record(raw);
+      const agent = store.createAgent({ name: string(body.name, 'nome'), objective: string(body.objective, 'objetivo'),
+        ...(body.parentId === undefined ? {} : { parentId: string(body.parentId, 'agente principal') }),
+        ...(body.codexThread === undefined ? {} : { codexThread: string(body.codexThread, 'sessão Codex') }),
+        ...(body.codexHome === undefined ? {} : { codexHome: string(body.codexHome, 'pasta Codex') }) });
+      sendJson(res, 201, agent);
+    }).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  if (path === '/api/hub/tasks') {
+    if (req.method === 'GET') sendJson(res, 200, store.listTasks());
+    else if (req.method === 'POST') void readJson(req).then((raw) => {
+      const body = record(raw);
+      sendJson(res, 201, store.createTask({ agentId: string(body.agentId, 'agente'), instruction: string(body.instruction, 'instrução') }));
+    }).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  const action = /^\/api\/hub\/tasks\/([0-9a-f-]+)\/(pause|resume)$/.exec(path);
+  if (action) {
+    if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
+    else {
+      req.resume();
+      try {
+        const task = store.listTasks().find((t) => t.id === action[1]);
+        if (!task) sendJson(res, 404, { error: 'Tarefa não encontrada' });
+        else if (action[2] === 'pause' && ['queued', 'unassigned'].includes(task.status)) sendJson(res, 200, store.setTaskStatus(task.id, 'paused'));
+        else if (action[2] === 'resume' && task.status === 'paused') sendJson(res, 200, store.setTaskStatus(task.id, store.agent(task.agentId)?.codexThread ? 'queued' : 'unassigned'));
+        else sendJson(res, 409, { error: 'Ação incompatível com o estado da tarefa' });
+      } catch (error) { fail(res, error); }
+    }
+    return true;
+  }
+  sendJson(res, 404, { error: 'Rota desconhecida' });
+  return true;
+}
