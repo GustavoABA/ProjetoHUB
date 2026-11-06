@@ -33,6 +33,15 @@ it('skips missing credentials and reports when no model is available', async () 
   expect(fetcher).not.toHaveBeenCalled();
 });
 
+it('routes local fallback only to Ollama', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: 'Local' } }] }), { status: 200 }));
+  const r = router(fetcher, { OPENAI_API_KEY: 'secret' });
+  r.add({ provider: 'openai', model: 'gpt-test', priority: 1 });
+  r.add({ provider: 'ollama', model: 'local-test', priority: 2 });
+  expect(await r.complete([{ role: 'user', content: 'Oi' }], 'ollama')).toMatchObject({ provider: 'ollama', text: 'Local' });
+  expect(fetcher.mock.calls[0][0]).toBe('http://127.0.0.1:11434/v1/chat/completions');
+});
+
 it('uses Anthropic native Messages format and does not leak error body', async () => {
   const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ content: [{ type: 'text', text: 'Olá' }], usage: { input_tokens: 3, output_tokens: 1 } }), { status: 200 }));
   const r = router(fetcher, { ANTHROPIC_API_KEY: 'secret-c' });

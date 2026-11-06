@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-export type TaskStatus = 'unassigned' | 'queued' | 'dispatching' | 'sent' | 'waiting_input' | 'paused' | 'done' | 'failed' | 'interrupted' | 'cancelled';
+export type TaskStatus = 'unassigned' | 'queued' | 'dispatching' | 'sent' | 'waiting_input' | 'paused' | 'done' | 'result_ready' | 'failed' | 'interrupted' | 'cancelled';
 export interface HubAgent {
   id: string;
   name: string;
@@ -22,6 +22,9 @@ export interface HubTask {
   createdAt: string;
   updatedAt: string;
   error?: string;
+  result?: string;
+  executionProvider?: 'ollama';
+  executionModel?: string;
 }
 export interface HubQuestion {
   id: string;
@@ -129,6 +132,20 @@ export class HubStore {
     task.updatedAt = new Date().toISOString();
     if (error) task.error = error;
     else delete task.error;
+    this.save();
+    return structuredClone(task);
+  }
+
+  recordLocalResult(id: string, text: string, model: string): HubTask {
+    const task = this.state.tasks.find((v) => v.id === id);
+    if (!task || task.status !== 'dispatching') throw new Error('Tarefa não está em execução local');
+    if (!text.trim() || text.length > 50_000 || !model.trim() || model.length > 150) throw new Error('Resultado local inválido');
+    task.result = text;
+    task.executionProvider = 'ollama';
+    task.executionModel = model;
+    task.status = 'result_ready';
+    task.updatedAt = new Date().toISOString();
+    delete task.error;
     this.save();
     return structuredClone(task);
   }

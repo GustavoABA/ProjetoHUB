@@ -60,7 +60,7 @@ import { BuildingUplink } from './world/uplink';
 import { WorldViewer } from './world/viewer';
 import { HubStore } from './hub/store';
 import { handleHubRoute } from './hub/http';
-import { dispatchNext } from './hub/dispatcher';
+import { dispatchNext, dispatchWithLocalFallback } from './hub/dispatcher';
 import { JobStore, runScheduledSearch } from './hub/jobs';
 import { BrowserManager } from './hub/browser';
 import { ModelRouter } from './hub/router';
@@ -68,6 +68,7 @@ import { ApplicationStore } from './hub/applications';
 import { ProfileStore } from './hub/profile';
 import { WhatsAppStore } from './hub/whatsapp';
 import { handleWhatsAppWebhook } from './hub/whatsapp-http';
+import { AdminKeyStore, startMcpServer } from './hub/mcp';
 
 const config = loadConfig();
 const startedAt = Date.now();
@@ -92,6 +93,7 @@ const modelRouter = new ModelRouter(join(config.dataDir, 'projecthub', 'router.j
 const applicationStore = new ApplicationStore(join(config.dataDir, 'projecthub', 'applications.json'));
 const profileStore = new ProfileStore(join(config.dataDir, 'projecthub', 'profile.json'));
 const whatsAppStore = new WhatsAppStore(join(config.dataDir, 'projecthub', 'whatsapp.json'));
+const mcpKeys = new AdminKeyStore(join(config.dataDir, 'projecthub', 'mcp-admin.json'));
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
@@ -358,9 +360,17 @@ const ticker = setInterval(() => {
 const hubRunner = codexBin ? createCodexQueueRunner(codexBin) : undefined;
 let hubDispatchBusy = false;
 const hubDispatcher = setInterval(() => {
-  if (!hubRunner || hubDispatchBusy) return;
+  const localAvailable = modelRouter.status().models.some((model) => model.provider === 'ollama' && model.enabled);
+  if (hubDispatchBusy || (!localAvailable && !hubRunner)) return;
   hubDispatchBusy = true;
-  void dispatchNext(projectHub, hubRunner)
+  const local = async (instruction: string, objective: string) => {
+    const response = await modelRouter.complete([
+      { role: 'system', content: `Você auxilia o agente cujo objetivo é: ${objective}. Produza apenas uma resposta textual. Não alegue ter navegado, enviado mensagens, preenchido formulários ou realizado ações externas. Se a tarefa exigir uma ação externa, explique o que falta fazer.` },
+      { role: 'user', content: instruction },
+    ], 'ollama');
+    return { text: response.text, model: response.model };
+  };
+  void (localAvailable ? dispatchWithLocalFallback(projectHub, hubRunner, local) : dispatchNext(projectHub, hubRunner!))
     .catch((error) => log.warn(tr('Falha ao enviar tarefa do ProjetoHUB: {0}', [errMsg(error)])))
     .finally(() => { hubDispatchBusy = false; });
 }, 2_000);
@@ -445,7 +455,7 @@ server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
-    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore) && !api(req, res, url)) fallback(req, res, url);
+    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys) && !api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(tr('Erro ao responder {0} {1}: {2}', [req.method, url.pathname, errMsg(err)]));
     if (!res.headersSent) sendJson(res, 500, { error: tr('erro interno') });
@@ -460,6 +470,15 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 });
 
 const webhookPort = Number(process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT ?? 0);
+const mcpPort = Number(process.env.PROJECTHUB_MCP_PORT ?? 4748);
+let mcpServer: http.Server | undefined;
+if (Number.isInteger(mcpPort) && mcpPort > 0 && mcpPort <= 65_535 && mcpPort !== config.port) {
+  const publicHost = process.env.PROJECTHUB_MCP_PUBLIC_HOST?.trim().toLowerCase();
+  mcpServer = startMcpServer({ hub: projectHub, jobs: jobStore, applications: applicationStore,
+    router: modelRouter, keys: mcpKeys, allowedHosts: ['127.0.0.1', 'localhost', ...(publicHost ? [publicHost] : [])] }, mcpPort);
+  mcpServer.on('error', (error) => log.warn(`MCP indisponível: ${errMsg(error)}`));
+  mcpServer.once('listening', () => log.info(`MCP em 127.0.0.1:${mcpPort}/mcp; autenticação obrigatória.`));
+} else log.warn('Porta MCP inválida ou igual à porta principal; MCP desativado.');
 let whatsAppWebhookServer: http.Server | undefined;
 if (Number.isInteger(webhookPort) && webhookPort > 0 && webhookPort <= 65_535) {
   const webhookBind = process.env.PROJECTHUB_WHATSAPP_WEBHOOK_BIND === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1';
@@ -605,6 +624,7 @@ function shutdown(signal: string): void {
   void closeVite?.();
   remoteListener?.close();
   whatsAppWebhookServer?.close();
+  mcpServer?.close();
   void browserManager.stop().catch((error) => log.warn(tr('Falha ao fechar navegador: {0}', [errMsg(error)]))).finally(() => {
     server.close(() => process.exit(0));
   });

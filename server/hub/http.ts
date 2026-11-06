@@ -8,6 +8,7 @@ import type { ApplicationStore } from './applications';
 import type { ProfileStore } from './profile';
 import { analyzeJob } from './analysis';
 import type { WhatsAppStore } from './whatsapp';
+import type { AdminKeyStore } from './mcp';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Corpo JSON inválido');
@@ -22,12 +23,23 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /** Routes are mounted only on the local server, after the normal Host/Origin guard. */
-export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore): boolean {
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore): boolean {
   const path = url.pathname;
   if (!path.startsWith('/api/hub/')) return false;
   const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
   if (remote !== '::1' && !/^127\./.test(remote ?? '')) {
     sendJson(res, 403, { error: 'Acesso permitido apenas neste computador' });
+    return true;
+  }
+  if (path === '/api/hub/mcp') {
+    if (req.method === 'GET') sendJson(res, 200, { configured: mcpKeys?.configured() ?? false, port: Number(process.env.PROJECTHUB_MCP_PORT ?? 4748) });
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  if (path === '/api/hub/mcp/key') {
+    if (!mcpKeys) sendJson(res, 503, { error: 'MCP indisponível' });
+    else if (req.method === 'POST') { req.resume(); sendJson(res, 200, { key: mcpKeys.rotate() }); }
+    else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
   if (path === '/api/hub/whatsapp') {

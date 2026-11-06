@@ -68,9 +68,9 @@ export class ModelRouter {
     }
     this.save(); return { ...model };
   }
-  async complete(messages: Message[]): Promise<Completion> {
+  async complete(messages: Message[], onlyProvider?: Provider): Promise<Completion> {
     validMessages(messages);
-    const available = this.state.models.filter((m) => m.enabled && (keys[m.provider] === null || this.env[keys[m.provider]!])).sort((a, b) => a.priority - b.priority);
+    const available = this.state.models.filter((m) => m.enabled && (!onlyProvider || m.provider === onlyProvider) && (keys[m.provider] === null || this.env[keys[m.provider]!])).sort((a, b) => a.priority - b.priority);
     if (!available.length) throw new Error('Nenhum modelo disponível: cadastre um modelo e configure a credencial do provedor');
     for (const model of available) {
       const key = keys[model.provider] ? this.env[keys[model.provider]!] : undefined;

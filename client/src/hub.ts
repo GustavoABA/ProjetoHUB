@@ -1,5 +1,5 @@
 type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; status?: 'active' | 'paused' | 'ended' };
-type Task = { id: string; agentId: string; instruction: string; status: string; error?: string };
+type Task = { id: string; agentId: string; instruction: string; status: string; error?: string; result?: string; executionProvider?: string; executionModel?: string };
 type Session = { name: string; sessionId: string; account: string; provider: string };
 type Source = { label: string; path: string; provider: string };
 type Job = { id: string; title: string; company: string; location: string; source: string; originalUrl: string; salary?: string; compatibility: number | null; justification: string; requirements: string[]; analysisModel?: string; analyzedAt?: string; applicationStatus: string };
@@ -8,9 +8,10 @@ type WhatsAppStatus = { instance: string; mainNumber?: string; secondaryNumber?:
 type Schedule = { query?: string; intervalHours?: number; enabled: boolean; nextRunAt?: string; lastError?: string };
 type BrowserStatus = { running: boolean; headless: boolean; manual: boolean; pages: { id: string; url: string }[] };
 type RouterStatus = { models: { id: string; provider: string; model: string; priority: number; enabled: boolean; available: boolean }[]; usage: { inputTokens: number; outputTokens: number; requests: number }; lastError?: string };
+type McpStatus = { configured: boolean; port: number };
 type Question = { id: string; taskId: string; applicationId?: string; text: string; state: 'pending' | 'answered' | 'cancelled'; answer?: string; createdAt: string; deadline?: string };
 type Application = { id: string; jobId: string; title: string; company: string; originalUrl: string; status: 'draft' | 'awaiting_approval' | 'approved'; answers: Record<string, string>; approvedAt?: string };
-const statusLabel: Record<string, string> = { unassigned: 'aguardando vínculo', queued: 'na fila', dispatching: 'enviando ao Codex', sent: 'instrução aceita pelo Codex', waiting_input: 'aguardando resposta', paused: 'pausada', done: 'concluída', failed: 'erro no envio', interrupted: 'envio interrompido; requer revisão', cancelled: 'cancelada' };
+const statusLabel: Record<string, string> = { unassigned: 'aguardando execução', queued: 'na fila', dispatching: 'em processamento', sent: 'instrução aceita pelo Codex', waiting_input: 'aguardando resposta', paused: 'pausada', done: 'concluída', result_ready: 'resposta local pronta para revisão', failed: 'erro na execução', interrupted: 'execução interrompida; requer revisão', cancelled: 'cancelada' };
 
 const css = `
 #projecthub-open{position:fixed;right:16px;top:72px;z-index:80;background:#3e326d;color:#fff;border:2px solid #a697e2;padding:9px 14px;font:600 16px 'Pixelify Sans',sans-serif;cursor:pointer}
@@ -43,6 +44,7 @@ export function mountHubPanel(): void {
     <form id="hub-whatsapp-form"><label>Número principal (destino)<input name="mainNumber" inputmode="numeric" pattern="[0-9]{10,15}" required></label><label>Número secundário (instância)<input name="secondaryNumber" inputmode="numeric" pattern="[0-9]{10,15}" required></label><button>Salvar números</button></form>
     <p id="hub-whatsapp-status"></p><button type="button" data-whatsapp-diagnostics>Verificar Evolution API</button> <button type="button" data-whatsapp-token>Gerar novo token do webhook</button><p id="hub-whatsapp-diagnostics"></p><p id="hub-whatsapp-token"></p>
     <p>Para parear: <a href="http://127.0.0.1:8080/manager" target="_blank" rel="noopener noreferrer" style="color:#c9bdff">abrir Evolution Manager</a>, criar somente a instância <strong>procura-de-emprego</strong> e ler o QR com o número secundário. No webhook dessa instância, use o evento MESSAGES_UPSERT e o cabeçalho X-ProjectHUB-Token com o token gerado acima. O listener precisa estar acessível à Evolution API.</p>
+    <h3>Controle remoto MCP</h3><p id="hub-mcp-status"></p><button type="button" data-mcp-key>Gerar ou revogar chave administrativa</button> <button type="button" data-mcp-copy>Copiar configuração de conexão</button><p id="hub-mcp-key"></p><small>A chave aparece uma vez. Gerar novamente revoga a anterior. O endereço local só funciona neste computador; acesso externo requer túnel e cliente MCP compatível com autenticação Bearer.</small>
     <h3>Perfil profissional</h3><p>Informe apenas dados verdadeiros. Cada linha é uma competência, experiência ou formação. Após editar, confirme novamente o perfil para permitir a pontuação das vagas.</p>
     <form id="hub-profile-form"><label>Competências<textarea name="skills" rows="4" placeholder="Excel&#10;Atendimento"></textarea></label><label>Experiência<textarea name="experience" rows="4"></textarea></label><label>Formação<textarea name="education" rows="4"></textarea></label><button>Salvar perfil</button></form>
     <button type="button" data-confirm-profile>Confirmo que estes dados são meus e estão corretos</button><p id="hub-profile-status"></p>
@@ -78,10 +80,12 @@ export function mountHubPanel(): void {
   const questionApplications = questionForm.elements.namedItem('applicationId') as HTMLSelectElement;
   const applicationJobs = applicationForm.elements.namedItem('job') as HTMLSelectElement;
   let choices: { thread: string; home: string }[] = [];
+  let currentMcpKey: string | undefined;
+  let mcpPort = 4748;
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
 
   async function refresh(): Promise<void> {
-    const [agents, tasks, questions, whatsapp, profile, jobs, applications, schedule, browser, router, snapshot, health] = await Promise.all([
+    const [agents, tasks, questions, whatsapp, profile, jobs, applications, schedule, browser, router, mcp, snapshot, health] = await Promise.all([
       api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'),
       api<Question[]>('/api/hub/questions'),
       api<WhatsAppStatus>('/api/hub/whatsapp'),
@@ -91,8 +95,11 @@ export function mountHubPanel(): void {
       api<Schedule>('/api/hub/jobs/schedule'),
       api<BrowserStatus>('/api/hub/browser'),
       api<RouterStatus>('/api/hub/router'),
+      api<McpStatus>('/api/hub/mcp'),
       api<{ agents: Session[] }>('/api/snapshot'), api<{ sources: Source[] }>('/api/health'),
     ]);
+    mcpPort = mcp.port;
+    (panel.querySelector('#hub-mcp-status') as HTMLElement).textContent = `MCP ${mcp.configured ? 'com chave configurada' : 'aguardando chave'} · http://127.0.0.1:${mcp.port}/mcp`;
     if (!whatsappForm.contains(document.activeElement)) {
       (whatsappForm.elements.namedItem('mainNumber') as HTMLInputElement).value = whatsapp.mainNumber ?? '';
       (whatsappForm.elements.namedItem('secondaryNumber') as HTMLInputElement).value = whatsapp.secondaryNumber ?? '';
@@ -168,6 +175,7 @@ export function mountHubPanel(): void {
         button.onclick = () => void api(`/api/hub/tasks/${task.id}/${task.status === 'paused' ? 'resume' : 'pause'}`, {}).then(refresh).catch(showError);
         li.append(button);
       }
+      if (task.result) { const detail = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = `Resposta do ${task.executionProvider ?? 'modelo'} (${task.executionModel ?? 'modelo não informado'})`; const output = document.createElement('pre'); output.textContent = task.result; output.style.whiteSpace = 'pre-wrap'; detail.append(summary, output); li.append(detail); }
       taskList.append(li);
     }
     const questionList = panel.querySelector('#hub-questions')!; questionList.replaceChildren();
@@ -258,8 +266,16 @@ export function mountHubPanel(): void {
       ? `Evolution ${result.version ?? 'versão desconhecida'} · instância ${result.instanceExists === null ? 'não verificada' : result.instanceExists ? `encontrada (${result.connectionStatus ?? 'estado desconhecido'})` : 'ainda não criada'}${result.error ? ` · ${result.error}` : ''}`
       : result.error ?? 'Evolution indisponível';
   }).catch(showError);
+  (panel.querySelector('[data-mcp-key]') as HTMLButtonElement).onclick = () => void api<{ key: string }>('/api/hub/mcp/key', {}).then(({ key }) => {
+    currentMcpKey = key;
+    (panel.querySelector('#hub-mcp-key') as HTMLElement).textContent = `Chave exibida uma vez: ${key}`;
+    return refresh();
+  }).catch(showError);
+  (panel.querySelector('[data-mcp-copy]') as HTMLButtonElement).onclick = () => void navigator.clipboard.writeText(`URL: http://127.0.0.1:${mcpPort}/mcp\nAutorização: Bearer ${currentMcpKey ?? '[use a chave exibida ao gerar; ela não pode ser recuperada]'}`).then(() => {
+    message.textContent = 'Configuração de conexão copiada. Mantenha a chave em local privado.';
+  }).catch(showError);
   const originalClose = (panel.querySelector('[data-close]') as HTMLButtonElement).onclick;
-  (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = (event) => { (panel.querySelector('#hub-whatsapp-token') as HTMLElement).textContent = ''; originalClose?.call(panel.querySelector('[data-close]') as HTMLButtonElement, event); };
+  (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = (event) => { (panel.querySelector('#hub-whatsapp-token') as HTMLElement).textContent = ''; (panel.querySelector('#hub-mcp-key') as HTMLElement).textContent = ''; currentMcpKey = undefined; originalClose?.call(panel.querySelector('[data-close]') as HTMLButtonElement, event); };
   profileForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(profileForm);
     const lines = (key: string) => String(data.get(key) ?? '').split(/\r?\n/).map((v) => v.trim()).filter(Boolean);
     void api('/api/hub/profile', { skills: lines('skills'), experience: lines('experience'), education: lines('education') }, 'PUT')
