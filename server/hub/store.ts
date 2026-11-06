@@ -22,7 +22,19 @@ export interface HubTask {
   updatedAt: string;
   error?: string;
 }
-interface State { version: 1; agents: HubAgent[]; tasks: HubTask[] }
+export interface HubQuestion {
+  id: string;
+  taskId: string;
+  applicationId?: string;
+  text: string;
+  createdAt: string;
+  state: 'pending' | 'answered';
+  deadline?: string;
+  answer?: string;
+  answeredAt?: string;
+  previousTaskStatus: TaskStatus;
+}
+interface State { version: 1; agents: HubAgent[]; tasks: HubTask[]; questions?: HubQuestion[] }
 const THREAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function required(value: string, label: string, max: number): string {
@@ -42,6 +54,7 @@ export class HubStore {
       }
       this.state = parsed as State;
     } else this.state = { version: 1, agents: [], tasks: [] };
+    this.state.questions ??= [];
     let changed = false;
     for (const task of this.state.tasks) {
       if (task.status === 'dispatching') { task.status = 'interrupted'; task.updatedAt = new Date().toISOString(); changed = true; }
@@ -51,6 +64,7 @@ export class HubStore {
 
   listAgents(): HubAgent[] { return structuredClone(this.state.agents); }
   listTasks(): HubTask[] { return structuredClone(this.state.tasks); }
+  listQuestions(): HubQuestion[] { return structuredClone(this.state.questions ?? []); }
   agent(id: string): HubAgent | undefined { const a = this.state.agents.find((v) => v.id === id); return a && structuredClone(a); }
 
   /** Default job team is configuration only; no session or activity is invented. */
@@ -114,6 +128,38 @@ export class HubStore {
     else delete task.error;
     this.save();
     return structuredClone(task);
+  }
+
+  askQuestion(input: { taskId: string; text: string; applicationId?: string; deadline?: string }): HubQuestion {
+    const task = this.state.tasks.find((t) => t.id === input.taskId);
+    if (!task) throw new Error('Tarefa não encontrada');
+    if (this.state.questions!.some((q) => q.taskId === task.id && q.state === 'pending')) throw new Error('Já existe pergunta pendente para esta tarefa');
+    if (!['unassigned', 'queued', 'paused'].includes(task.status)) throw new Error('Tarefa não pode aguardar resposta neste estado');
+    const text = required(input.text, 'pergunta', 2000);
+    const applicationId = input.applicationId === undefined ? undefined : required(input.applicationId, 'candidatura', 100);
+    let deadline: string | undefined;
+    if (input.deadline !== undefined) {
+      const parsed = Date.parse(input.deadline);
+      if (!Number.isFinite(parsed) || parsed <= Date.now()) throw new Error('Prazo deve ser uma data futura');
+      deadline = new Date(parsed).toISOString();
+    }
+    const question: HubQuestion = { id: randomUUID(), taskId: task.id, text, createdAt: new Date().toISOString(), state: 'pending', previousTaskStatus: task.status,
+      ...(applicationId ? { applicationId } : {}), ...(deadline ? { deadline } : {}) };
+    this.state.questions!.push(question);
+    task.status = 'waiting_input'; task.updatedAt = question.createdAt;
+    this.save(); return structuredClone(question);
+  }
+
+  answerQuestion(id: string, answerInput: string): HubQuestion {
+    const question = this.state.questions!.find((q) => q.id === id);
+    if (!question) throw new Error('Pergunta não encontrada');
+    if (question.state !== 'pending') throw new Error('Pergunta já respondida');
+    const answer = required(answerInput, 'resposta', 5000);
+    const task = this.state.tasks.find((t) => t.id === question.taskId);
+    if (!task || task.status !== 'waiting_input') throw new Error('Tarefa relacionada não está aguardando resposta');
+    question.state = 'answered'; question.answer = answer; question.answeredAt = new Date().toISOString();
+    task.status = question.previousTaskStatus; task.updatedAt = question.answeredAt;
+    this.save(); return structuredClone(question);
   }
 
   private save(): void {

@@ -18,6 +18,7 @@ do meio (0.**3**.0).
 - Agenda persistente de busca de vagas a cada 6, 12 ou 24 horas, executada pelo servidor mesmo com a interface fechada.
 - Navegador Playwright com perfil próprio, modo visível ou em segundo plano, controle manual, várias páginas e capturas de tela.
 - Roteador local para seis provedores, com modelos persistentes, prioridades, fallback em falhas recuperáveis, contagem de tokens e teste manual no painel.
+- Perguntas pendentes persistentes vinculadas a tarefas, com resposta pelo painel e espera restrita à tarefa relacionada.
 
 ## [1.0.3] - 2026-10-16
 

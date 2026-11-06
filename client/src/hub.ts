@@ -6,6 +6,7 @@ type Job = { id: string; title: string; company: string; location: string; sourc
 type Schedule = { query?: string; intervalHours?: number; enabled: boolean; nextRunAt?: string; lastError?: string };
 type BrowserStatus = { running: boolean; headless: boolean; manual: boolean; pages: { id: string; url: string }[] };
 type RouterStatus = { models: { id: string; provider: string; model: string; priority: number; enabled: boolean; available: boolean }[]; usage: { inputTokens: number; outputTokens: number; requests: number }; lastError?: string };
+type Question = { id: string; taskId: string; applicationId?: string; text: string; state: 'pending' | 'answered'; answer?: string; createdAt: string; deadline?: string };
 const statusLabel: Record<string, string> = { unassigned: 'aguardando vínculo', queued: 'na fila', dispatching: 'enviando ao Codex', sent: 'instrução aceita pelo Codex', waiting_input: 'aguardando resposta', paused: 'pausada', done: 'concluída', failed: 'erro no envio', interrupted: 'envio interrompido; requer revisão' };
 
 const css = `
@@ -34,6 +35,7 @@ export function mountHubPanel(): void {
     <p>Agentes configurados aparecem aqui. O escritório mostra sessões reais do Codex; tarefas sem sessão vinculada aguardam configuração.</p>
     <h3>Criar agente</h3><form id="hub-agent-form"><label>Nome<input name="name" maxlength="100" required></label><label>Objetivo<input name="objective" maxlength="2000" required></label><label>Sessão Codex existente (opcional)<select name="session"><option value="">Sem vínculo</option></select></label><label>Subagente de (opcional)<select name="parent"><option value="">Agente principal</option></select></label><button>Criar agente</button></form>
     <h3>Nova tarefa</h3><form id="hub-task-form"><label>Agente<select name="agent" required></select></label><label>Instrução<input name="instruction" maxlength="10000" required></label><button>Criar tarefa</button></form>
+    <h3>Perguntas pendentes</h3><form id="hub-question-form"><label>Tarefa<select name="task" required></select></label><label>Pergunta<input name="text" maxlength="2000" required></label><label>Candidatura (opcional)<input name="applicationId" maxlength="100"></label><button>Registrar pergunta</button></form><ul id="hub-questions"></ul>
     <h3>Vagas remotas</h3><form id="hub-job-form"><label>Pesquisar na Remotive<input name="query" maxlength="100" required placeholder="Ex.: assistente, suporte, júnior"></label><button>Buscar vagas</button></form>
     <form id="hub-schedule-form"><label>Pesquisa automática<input name="query" maxlength="100" required placeholder="Termo de pesquisa"></label><label>Intervalo<select name="interval"><option value="6">6 horas</option><option value="12">12 horas</option><option value="24">24 horas</option></select></label><label><span>Ativar</span><input name="enabled" type="checkbox"></label><button>Salvar agenda</button></form><p id="hub-schedule-status"></p>
     <p>Fonte: Remotive. A consulta pública tem limite de quatro tentativas por dia; as vagas exibidas levam ao anúncio original.</p>
@@ -48,6 +50,7 @@ export function mountHubPanel(): void {
   const message = panel.querySelector('#projecthub-message') as HTMLElement;
   const agentForm = panel.querySelector('#hub-agent-form') as HTMLFormElement;
   const taskForm = panel.querySelector('#hub-task-form') as HTMLFormElement;
+  const questionForm = panel.querySelector('#hub-question-form') as HTMLFormElement;
   const jobForm = panel.querySelector('#hub-job-form') as HTMLFormElement;
   const scheduleForm = panel.querySelector('#hub-schedule-form') as HTMLFormElement;
   const browserForm = panel.querySelector('#hub-browser-form') as HTMLFormElement;
@@ -56,12 +59,14 @@ export function mountHubPanel(): void {
   const sessions = agentForm.elements.namedItem('session') as HTMLSelectElement;
   const parents = agentForm.elements.namedItem('parent') as HTMLSelectElement;
   const agentsSelect = taskForm.elements.namedItem('agent') as HTMLSelectElement;
+  const questionTasks = questionForm.elements.namedItem('task') as HTMLSelectElement;
   let choices: { thread: string; home: string }[] = [];
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
 
   async function refresh(): Promise<void> {
-    const [agents, tasks, jobs, schedule, browser, router, snapshot, health] = await Promise.all([
+    const [agents, tasks, questions, jobs, schedule, browser, router, snapshot, health] = await Promise.all([
       api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'),
+      api<Question[]>('/api/hub/questions'),
       api<Job[]>('/api/hub/jobs'),
       api<Schedule>('/api/hub/jobs/schedule'),
       api<BrowserStatus>('/api/hub/browser'),
@@ -96,7 +101,7 @@ export function mountHubPanel(): void {
     (panel.querySelector('#hub-schedule-status') as HTMLElement).textContent = schedule.enabled
       ? `Próxima consulta: ${schedule.nextRunAt ? new Date(schedule.nextRunAt).toLocaleString('pt-BR') : 'pendente'}${schedule.lastError ? ` · Último erro: ${schedule.lastError}` : ''}`
       : 'Pesquisa automática desligada.';
-    sessions.length = 1; parents.length = 1; agentsSelect.length = 0; choices = [];
+    sessions.length = 1; parents.length = 1; agentsSelect.length = 0; questionTasks.length = 0; choices = [];
     for (const session of snapshot.agents.filter((a) => a.provider === 'codex')) {
       const home = health.sources.find((s) => s.provider === 'codex' && s.label === session.account)?.path;
       if (!home || !session.sessionId) continue;
@@ -111,6 +116,7 @@ export function mountHubPanel(): void {
     }
     const taskList = panel.querySelector('#hub-tasks')!; taskList.replaceChildren();
     for (const task of tasks.slice().reverse()) {
+      if (['queued', 'unassigned', 'paused'].includes(task.status)) option(questionTasks, task.id, `${task.instruction.slice(0, 70)} · ${task.id.slice(0, 8)}`);
       const li = document.createElement('li'); li.textContent = `${agents.find((a) => a.id === task.agentId)?.name ?? 'Agente removido'}: ${task.instruction} — ${statusLabel[task.status] ?? task.status}${task.error ? ` (${task.error})` : ''} `;
       if (task.status === 'queued' || task.status === 'unassigned' || task.status === 'paused') {
         const button = document.createElement('button'); button.textContent = task.status === 'paused' ? 'Retomar' : 'Pausar';
@@ -118,6 +124,18 @@ export function mountHubPanel(): void {
         li.append(button);
       }
       taskList.append(li);
+    }
+    const questionList = panel.querySelector('#hub-questions')!; questionList.replaceChildren();
+    for (const question of questions.slice().reverse().slice(0, 100)) {
+      const li = document.createElement('li'); li.textContent = `${question.text} · tarefa ${question.taskId.slice(0, 8)} · ${question.state === 'pending' ? 'aguardando resposta' : 'respondida'} `;
+      if (question.state === 'pending') {
+        const form = document.createElement('form');
+        const input = document.createElement('input'); input.required = true; input.maxLength = 5000; input.placeholder = 'Resposta confirmada pelo usuário'; input.setAttribute('aria-label', 'Resposta');
+        const button = document.createElement('button'); button.textContent = 'Responder'; form.append(input, button);
+        form.onsubmit = (event) => { event.preventDefault(); void api(`/api/hub/questions/${question.id}/answer`, { answer: input.value }).then(refresh).catch(showError); };
+        li.append(form);
+      }
+      questionList.append(li);
     }
     const jobList = panel.querySelector('#hub-jobs')!; jobList.replaceChildren();
     for (const job of jobs.slice().reverse().slice(0, 100)) {
@@ -132,7 +150,7 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
-    if (panel.hidden || agentForm.contains(document.activeElement) || taskForm.contains(document.activeElement) || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || taskForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
@@ -141,6 +159,9 @@ export function mountHubPanel(): void {
   taskForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(taskForm);
     void api('/api/hub/tasks', { agentId: data.get('agent'), instruction: data.get('instruction') })
       .then(() => { taskForm.reset(); message.textContent = 'Tarefa registrada.'; return refresh(); }).catch(showError); };
+  questionForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(questionForm);
+    void api('/api/hub/questions', { taskId: data.get('task'), text: data.get('text'), ...(data.get('applicationId') ? { applicationId: data.get('applicationId') } : {}) })
+      .then(() => { questionForm.reset(); message.textContent = 'Pergunta pendente registrada.'; return refresh(); }).catch(showError); };
   jobForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(jobForm); message.textContent = 'Consultando vagas...';
     void api<{ added: number }>('/api/hub/jobs/search', { query: data.get('query') })
       .then((result) => { message.textContent = `${result.added} vaga(s) nova(s) registrada(s).`; return refresh(); }).catch(showError); };

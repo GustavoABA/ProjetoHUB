@@ -17,7 +17,7 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 | Vagas e candidaturas | Não encontrado | Busca manual Remotive, persistência e deduplicação de vagas; avaliação e candidaturas pendentes |
 | Evolution API / WhatsApp | Não encontrado | Pendente |
 | MCP remoto, ngrok e registro de conexão | Há recursos remotos próprios do Habblaud, mas não o MCP solicitado | Pendente; nenhuma URL ou credencial publicada |
-| Persistência operacional | Configurações e histórico do Habblaud | Estado local de agentes e tarefas com gravação atômica; execução, perguntas e backups ainda parciais ou pendentes |
+| Persistência operacional | Configurações e histórico do Habblaud | Estado local de agentes, tarefas e perguntas com gravação atômica; execução e backups ainda parciais ou pendentes |
 
 `shared/world/` e `server/world/` não foram modificados. O Habblaud World transmite apenas dados verdadeiros quando configurado, conforme `AGENTS.md` e `shared/world/README.md`. As futuras entidades do ProjetoHUB só deverão aparecer no escritório como atividade real e não devem alimentar o Habblaud World de forma artificial.
 
@@ -37,12 +37,15 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 - Roteador: 22 testes do módulo `server/hub/` passaram, incluindo quatro testes específicos de fallback HTTP 429, contexto, Anthropic, persistência de tokens, ausência de credenciais e erro não recuperável. `npm run typecheck` e `npm run build` passaram. As respostas dos provedores externos e o fallback foram simulados; nenhum provedor externo foi validado com credencial real.
 - O servidor isolado na porta 4763 respondeu a `GET /api/hub/router`, cadastrou um modelo por `POST`, atualizou seu estado por `PATCH` e o removeu por `DELETE`. Nenhuma chave estava presente nesse processo de verificação, então o modelo apareceu com credencial ausente; nenhuma requisição de inferência foi feita.
 - Em uma segunda execução isolada na porta 4763, o Ollama instalado neste Windows listou `qwen2.5:1.5b`. O painel/API cadastrou esse modelo e `POST /api/hub/router/complete` recebeu `OK` de uma inferência real; o serviço informou 38 tokens de entrada e 2 de saída. O arquivo local `router.json` continuou com o modelo e os contadores após encerrar o servidor. Isso valida Ollama neste computador, mas não os demais provedores nem a recuperação automática de um processo que caiu durante uma chamada.
+- Perguntas: 25 testes do módulo `server/hub/` passaram. Em servidor isolado na porta 4764, a API criou duas tarefas, colocou somente a primeira em `waiting_input`, registrou a resposta e devolveu somente essa tarefa a `unassigned`. O arquivo de estado guarda a pergunta e a resposta. O teste não envolveu WhatsApp nem candidatura real.
 
 ## Fase 2 em andamento
 
 `server/hub/` mantém agentes e tarefas em `<dataDir>/projecthub/state.json`. O painel "Agentes e tarefas" no escritório cria agentes com nome e objetivo, permite vincular uma sessão Codex detectada e criar subagentes. Tarefas sem vínculo ficam `unassigned`; tarefas vinculadas entram na fila local e o processo tenta entregá-las pelo `codex queue` existente. `sent` significa **apenas que a instrução foi aceita pela fila**, nunca que a execução terminou. Se o processo cair durante uma entrega, a tarefa volta como `interrupted` para revisão, evitando reenviar automaticamente uma instrução possivelmente entregue. As rotas `/api/hub/*` aceitam apenas conexão do próprio computador.
 
-Ainda faltam edição e encerramento de agentes, confirmação de resultado do Codex, concorrência configurável, retentativas seguras, perguntas pendentes e integração plena dos estados ao personagem pixel-art. O painel novo não anuncia atividade de agentes configurados como se fossem sessões reais.
+Ainda faltam edição e encerramento de agentes, confirmação de resultado do Codex, concorrência configurável, retentativas seguras e integração plena dos estados ao personagem pixel-art. O painel novo não anuncia atividade de agentes configurados como se fossem sessões reais.
+
+Perguntas pendentes agora têm ID, tarefa vinculada, candidatura opcional, texto, criação, estado, prazo opcional, resposta e data da resposta. O painel local permite registrar e responder. A tarefa vinculada entra em `waiting_input` e volta ao estado anterior quando respondida; as demais tarefas mantêm seus estados. Apenas tarefas ainda não enviadas ao Codex ou pausadas podem receber pergunta, pois a API não consegue suspender uma execução Codex já aceita pela fila. Falta integrar o canal WhatsApp, validar o remetente e retomar um fluxo de candidatura a partir dessa resposta.
 
 ## Pesquisa inicial de vagas
 
@@ -80,7 +83,7 @@ O endereço local é `http://127.0.0.1:4747`. Não exponha a porta original dire
 
 1. Resolver ou classificar os 19 testes que falham no Windows, sem reduzir proteções de arquivos em plataformas POSIX.
 2. Validar o fluxo de hooks e mensagens Codex com as APIs oficialmente disponíveis nesta versão; a detecção de sessão já foi validada.
-3. Completar o orquestrador persistente: reconciliar resultados reais do Codex, edição de agentes, retentativas seguras, prioridades, perguntas e recuperação.
+3. Completar o orquestrador persistente: reconciliar resultados reais do Codex, edição de agentes, retentativas seguras, prioridades e recuperação.
 4. Validar provedores externos configurados, acrescentar limites/custos/credenciais protegidas, depois avaliação de vagas, candidaturas, WhatsApp e MCP autenticado. Cada integração externa requer configuração legítima e teste real antes de ser marcada funcional.
 
 Nenhuma candidatura, mensagem WhatsApp, túnel ngrok ou comando MCP foi executado nesta fase. Nenhuma credencial foi lida para integrar provedores externos.

@@ -50,6 +50,23 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
+  if (path === '/api/hub/questions') {
+    if (req.method === 'GET') sendJson(res, 200, store.listQuestions());
+    else if (req.method === 'POST') void readJson(req).then((raw) => {
+      const body = record(raw);
+      sendJson(res, 201, store.askQuestion({ taskId: string(body.taskId, 'tarefa'), text: string(body.text, 'pergunta'),
+        ...(body.applicationId === undefined ? {} : { applicationId: string(body.applicationId, 'candidatura') }),
+        ...(body.deadline === undefined ? {} : { deadline: string(body.deadline, 'prazo') }) }));
+    }).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  const questionAction = /^\/api\/hub\/questions\/([0-9a-f-]+)\/answer$/.exec(path);
+  if (questionAction) {
+    if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
+    else void readJson(req).then((raw) => sendJson(res, 200, store.answerQuestion(questionAction[1], string(record(raw).answer, 'resposta')))).catch((error) => fail(res, error));
+    return true;
+  }
   if (path === '/api/hub/browser') {
     if (req.method !== 'GET') sendJson(res, 405, { error: 'Método não permitido' });
     else sendJson(res, 200, browser?.status() ?? { running: false, headless: false, manual: false, pages: [] });
