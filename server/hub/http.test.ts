@@ -62,3 +62,18 @@ it('searches a public source and lists only traceable vacancies', async () => {
     expect(listing[0]).toMatchObject({ source: 'Remotive', originalUrl: 'https://remotive.com/remote-jobs/operations/assistant-51' });
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
+
+it('saves a periodic search configuration through the local API', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
+  const agents = new HubStore(join(dir, 'state.json')); const jobs = new JobStore(join(dir, 'jobs.json'));
+  const server = http.createServer((req, res) => { handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), agents, jobs); });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const base = `http://127.0.0.1:${address.port}`;
+    const response = await fetch(base + '/api/hub/jobs/schedule', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: 'suporte', intervalHours: 12, enabled: true }) });
+    expect(response.status).toBe(200);
+    expect((await (await fetch(base + '/api/hub/jobs/schedule')).json())).toMatchObject({ query: 'suporte', intervalHours: 12, enabled: true });
+    expect(new JobStore(join(dir, 'jobs.json')).schedule()?.query).toBe('suporte');
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});

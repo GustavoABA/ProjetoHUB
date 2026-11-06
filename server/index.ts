@@ -61,7 +61,7 @@ import { WorldViewer } from './world/viewer';
 import { HubStore } from './hub/store';
 import { handleHubRoute } from './hub/http';
 import { dispatchNext } from './hub/dispatcher';
-import { JobStore } from './hub/jobs';
+import { JobStore, runScheduledSearch } from './hub/jobs';
 
 const config = loadConfig();
 const startedAt = Date.now();
@@ -353,6 +353,11 @@ const hubDispatcher = setInterval(() => {
     .catch((error) => log.warn(tr('Falha ao enviar tarefa do ProjetoHUB: {0}', [errMsg(error)])))
     .finally(() => { hubDispatchBusy = false; });
 }, 2_000);
+const searchTick = () => { void runScheduledSearch(jobStore).then((ran) => {
+  if (ran && jobStore.schedule()?.lastError) log.warn(tr('Pesquisa agendada do ProjetoHUB: {0}', [jobStore.schedule()!.lastError]));
+}).catch((error) => log.warn(tr('Falha na agenda de vagas do ProjetoHUB: {0}', [errMsg(error)]))); };
+searchTick();
+const jobSearchTimer = setInterval(searchTick, 60_000);
 
 const api = createApiHandler({
   renameRoom: (id, name) => {
@@ -562,6 +567,7 @@ function shutdown(signal: string): void {
   log.info(tr('Encerrando ({0})…', [signal]));
   clearInterval(ticker);
   clearInterval(hubDispatcher);
+  clearInterval(jobSearchTimer);
   stats.stop();
   agents.stop();
   accounts.stop();

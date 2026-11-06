@@ -3,6 +3,7 @@ type Task = { id: string; agentId: string; instruction: string; status: string; 
 type Session = { name: string; sessionId: string; account: string; provider: string };
 type Source = { label: string; path: string; provider: string };
 type Job = { id: string; title: string; company: string; location: string; source: string; originalUrl: string; salary?: string; compatibility: number | null; applicationStatus: string };
+type Schedule = { query?: string; intervalHours?: number; enabled: boolean; nextRunAt?: string; lastError?: string };
 const statusLabel: Record<string, string> = { unassigned: 'aguardando vínculo', queued: 'na fila', dispatching: 'enviando ao Codex', sent: 'instrução aceita pelo Codex', waiting_input: 'aguardando resposta', paused: 'pausada', done: 'concluída', failed: 'erro no envio', interrupted: 'envio interrompido; requer revisão' };
 
 const css = `
@@ -16,8 +17,8 @@ const css = `
 #projecthub-panel .hub-head{display:flex;justify-content:space-between;align-items:center}#projecthub-message{min-height:1.4em;color:#ffe4a0}
 `;
 
-async function api<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+async function api<T>(path: string, body?: unknown, method = 'POST'): Promise<T> {
+  const response = await fetch(path, body === undefined ? {} : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
   return result as T;
@@ -32,6 +33,7 @@ export function mountHubPanel(): void {
     <h3>Criar agente</h3><form id="hub-agent-form"><label>Nome<input name="name" maxlength="100" required></label><label>Objetivo<input name="objective" maxlength="2000" required></label><label>Sessão Codex existente (opcional)<select name="session"><option value="">Sem vínculo</option></select></label><label>Subagente de (opcional)<select name="parent"><option value="">Agente principal</option></select></label><button>Criar agente</button></form>
     <h3>Nova tarefa</h3><form id="hub-task-form"><label>Agente<select name="agent" required></select></label><label>Instrução<input name="instruction" maxlength="10000" required></label><button>Criar tarefa</button></form>
     <h3>Vagas remotas</h3><form id="hub-job-form"><label>Pesquisar na Remotive<input name="query" maxlength="100" required placeholder="Ex.: assistente, suporte, júnior"></label><button>Buscar vagas</button></form>
+    <form id="hub-schedule-form"><label>Pesquisa automática<input name="query" maxlength="100" required placeholder="Termo de pesquisa"></label><label>Intervalo<select name="interval"><option value="6">6 horas</option><option value="12">12 horas</option><option value="24">24 horas</option></select></label><label><span>Ativar</span><input name="enabled" type="checkbox"></label><button>Salvar agenda</button></form><p id="hub-schedule-status"></p>
     <p>Fonte: Remotive. A consulta pública tem limite de quatro tentativas por dia; as vagas exibidas levam ao anúncio original.</p>
     <p id="projecthub-message" role="status"></p><h3>Agentes</h3><ul id="hub-agents"></ul><h3>Tarefas</h3><ul id="hub-tasks"></ul><h3>Vagas encontradas</h3><ul id="hub-jobs"></ul>`;
   document.body.append(open, panel);
@@ -39,6 +41,7 @@ export function mountHubPanel(): void {
   const agentForm = panel.querySelector('#hub-agent-form') as HTMLFormElement;
   const taskForm = panel.querySelector('#hub-task-form') as HTMLFormElement;
   const jobForm = panel.querySelector('#hub-job-form') as HTMLFormElement;
+  const scheduleForm = panel.querySelector('#hub-schedule-form') as HTMLFormElement;
   const sessions = agentForm.elements.namedItem('session') as HTMLSelectElement;
   const parents = agentForm.elements.namedItem('parent') as HTMLSelectElement;
   const agentsSelect = taskForm.elements.namedItem('agent') as HTMLSelectElement;
@@ -46,11 +49,20 @@ export function mountHubPanel(): void {
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
 
   async function refresh(): Promise<void> {
-    const [agents, tasks, jobs, snapshot, health] = await Promise.all([
+    const [agents, tasks, jobs, schedule, snapshot, health] = await Promise.all([
       api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'),
       api<Job[]>('/api/hub/jobs'),
+      api<Schedule>('/api/hub/jobs/schedule'),
       api<{ agents: Session[] }>('/api/snapshot'), api<{ sources: Source[] }>('/api/health'),
     ]);
+    if (!scheduleForm.contains(document.activeElement)) {
+      (scheduleForm.elements.namedItem('query') as HTMLInputElement).value = schedule.query ?? '';
+      (scheduleForm.elements.namedItem('interval') as HTMLSelectElement).value = String(schedule.intervalHours ?? 6);
+      (scheduleForm.elements.namedItem('enabled') as HTMLInputElement).checked = schedule.enabled;
+    }
+    (panel.querySelector('#hub-schedule-status') as HTMLElement).textContent = schedule.enabled
+      ? `Próxima consulta: ${schedule.nextRunAt ? new Date(schedule.nextRunAt).toLocaleString('pt-BR') : 'pendente'}${schedule.lastError ? ` · Último erro: ${schedule.lastError}` : ''}`
+      : 'Pesquisa automática desligada.';
     sessions.length = 1; parents.length = 1; agentsSelect.length = 0; choices = [];
     for (const session of snapshot.agents.filter((a) => a.provider === 'codex')) {
       const home = health.sources.find((s) => s.provider === 'codex' && s.label === session.account)?.path;
@@ -87,7 +99,7 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
-    if (panel.hidden || agentForm.contains(document.activeElement) || taskForm.contains(document.activeElement) || jobForm.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || taskForm.contains(document.activeElement) || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
@@ -99,4 +111,7 @@ export function mountHubPanel(): void {
   jobForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(jobForm); message.textContent = 'Consultando vagas...';
     void api<{ added: number }>('/api/hub/jobs/search', { query: data.get('query') })
       .then((result) => { message.textContent = `${result.added} vaga(s) nova(s) registrada(s).`; return refresh(); }).catch(showError); };
+  scheduleForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(scheduleForm);
+    void api('/api/hub/jobs/schedule', { query: data.get('query'), intervalHours: Number(data.get('interval')), enabled: data.has('enabled') }, 'PUT')
+      .then(() => { message.textContent = 'Agenda salva.'; return refresh(); }).catch(showError); };
 }

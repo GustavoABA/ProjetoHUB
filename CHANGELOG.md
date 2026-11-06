@@ -15,6 +15,7 @@ do meio (0.**3**.0).
 - Painel local para cadastrar agentes e subagentes, vincular sessões Codex existentes e criar ou pausar tarefas.
 - Estado persistente de agentes e tarefas com registro separado de instruções aceitas pela fila do Codex.
 - Equipe inicial "Procura de Emprego" configurada sem simular sessões ativas. Pesquisa manual de vagas remotas na fonte pública Remotive, com origem, deduplicação e limite de consultas.
+- Agenda persistente de busca de vagas a cada 6, 12 ou 24 horas, executada pelo servidor mesmo com a interface fechada.
 
 ## [1.0.3] - 2026-10-16
 

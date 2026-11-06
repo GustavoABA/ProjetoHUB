@@ -21,7 +21,8 @@ export interface JobListing {
   applicationStatus: 'not_started';
 }
 interface Attempt { at: string; ok: boolean }
-interface State { version: 1; jobs: JobListing[]; attempts: Attempt[] }
+export interface JobSchedule { query: string; intervalHours: 6 | 12 | 24; enabled: boolean; nextRunAt: string; lastRunAt?: string; lastError?: string }
+interface State { version: 1; jobs: JobListing[]; attempts: Attempt[]; schedule?: JobSchedule }
 
 function text(value: unknown, max: number): string {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -72,6 +73,30 @@ export class JobStore {
     } else this.state = { version: 1, jobs: [], attempts: [] };
   }
   list(): JobListing[] { return structuredClone(this.state.jobs); }
+  schedule(): JobSchedule | undefined { return this.state.schedule && structuredClone(this.state.schedule); }
+  configure(input: { query: string; intervalHours: number; enabled: boolean }, now: Date = new Date()): JobSchedule {
+    const query = input.query?.trim();
+    if (!query || query.length > 100) throw new Error('Pesquisa deve conter de 1 a 100 caracteres');
+    if (input.intervalHours !== 6 && input.intervalHours !== 12 && input.intervalHours !== 24) throw new Error('Intervalo deve ser 6, 12 ou 24 horas');
+    if (typeof input.enabled !== 'boolean') throw new Error('Ativação inválida');
+    this.state.schedule = { query, intervalHours: input.intervalHours, enabled: input.enabled, nextRunAt: now.toISOString() };
+    this.save();
+    return this.schedule()!;
+  }
+  claimScheduled(now: Date): JobSchedule | undefined {
+    const schedule = this.state.schedule;
+    if (!schedule?.enabled || Date.parse(schedule.nextRunAt) > now.getTime()) return undefined;
+    schedule.nextRunAt = new Date(now.getTime() + schedule.intervalHours * 3_600_000).toISOString();
+    schedule.lastRunAt = now.toISOString();
+    delete schedule.lastError;
+    this.save();
+    return structuredClone(schedule);
+  }
+  scheduledError(message: string): void {
+    if (!this.state.schedule) return;
+    this.state.schedule.lastError = message.slice(0, 500);
+    this.save();
+  }
   searchesToday(now: Date): number { return this.state.attempts.filter((a) => a.ok && a.at.slice(0, 10) === now.toISOString().slice(0, 10)).length; }
   attemptsToday(now: Date): number { return this.state.attempts.filter((a) => a.at.slice(0, 10) === now.toISOString().slice(0, 10)).length; }
   begin(now: Date): number {
@@ -112,4 +137,13 @@ export async function searchRemotive(store: JobStore, query: string, fetcher: ty
   const jobs = (body as { jobs: unknown[] }).jobs.map((v) => parseJob(v, now)).filter((v): v is JobListing => !!v);
   const added = store.finish(index, jobs);
   return { added, jobs };
+}
+
+/** Claims next run before I/O so a restart or overlapping timer never floods the source. */
+export async function runScheduledSearch(store: JobStore, fetcher: typeof fetch = fetch, now: Date = new Date()): Promise<boolean> {
+  const schedule = store.claimScheduled(now);
+  if (!schedule) return false;
+  try { await searchRemotive(store, schedule.query, fetcher, now); }
+  catch (error) { store.scheduledError(error instanceof Error ? error.message : 'Falha na pesquisa agendada'); }
+  return true;
 }

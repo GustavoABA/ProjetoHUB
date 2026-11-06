@@ -29,6 +29,16 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     else sendJson(res, 200, jobs?.list() ?? []);
     return true;
   }
+  if (path === '/api/hub/jobs/schedule') {
+    if (!jobs) sendJson(res, 503, { error: 'Agenda de vagas indisponível' });
+    else if (req.method === 'GET') sendJson(res, 200, jobs.schedule() ?? { enabled: false });
+    else if (req.method === 'PUT') void readJson(req).then((raw) => {
+      const body = record(raw);
+      sendJson(res, 200, jobs.configure({ query: string(body.query, 'pesquisa'), intervalHours: Number(body.intervalHours), enabled: body.enabled as boolean }));
+    }).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
   if (path === '/api/hub/jobs/search') {
     if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
     else if (!jobs) sendJson(res, 503, { error: 'Pesquisa de vagas indisponível' });

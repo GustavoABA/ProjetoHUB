@@ -32,7 +32,7 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 - `scripts/start-windows.ps1 -Window`: passou com servidor já ativo e após encerrá-lo; no segundo caso iniciou um novo processo e a verificação de saúde retornou `true`. A inspeção visual da janela e a compatibilidade com Windows 10 continuam pendentes.
 - Fase 2 parcial: sete testes novos de persistência, entrega e API passaram; `npm run typecheck` e `npm run build` passaram. Em servidor isolado na porta 4757, `POST /api/hub/agents` e `POST /api/hub/tasks` criaram um agente e uma tarefa; após reinício, ambos foram lidos do disco. O teste usou dados locais de verificação, sem enviar instruções ao Codex.
 - A instalação local informa `codex-cli 0.166.0-alpha.5.1`; `codex queue --help` confirma `--thread` e `--message`. Ainda não foi enviado comando real nesta fase, portanto a entrega e a conclusão de um trabalho Codex permanecem sem validação de ponta a ponta.
-- Pesquisa de vagas: 12 testes do módulo `server/hub/` passaram, além de checagem de tipos e build. Uma consulta real `assistant` à Remotive retornou 12 anúncios com URLs de origem. Após reiniciar o servidor isolado, `GET /api/hub/jobs` retornou os mesmos 12 registros. Os resultados são anúncios encontrados, **não** vagas recomendadas nem candidaturas iniciadas; a busca da fonte também examina descrições e pode trazer cargos fora do termo pesquisado.
+- Pesquisa de vagas: 15 testes do módulo `server/hub/` passaram, além de checagem de tipos e build. Uma consulta real `assistant` à Remotive retornou 12 anúncios com URLs de origem. Após reiniciar o servidor isolado, `GET /api/hub/jobs` retornou os mesmos 12 registros. Os resultados são anúncios encontrados, **não** vagas recomendadas nem candidaturas iniciadas; a busca da fonte também examina descrições e pode trazer cargos fora do termo pesquisado.
 
 ## Fase 2 em andamento
 
@@ -44,7 +44,9 @@ Ainda faltam edição e encerramento de agentes, confirmação de resultado do C
 
 O servidor cria uma configuração inativa "Procura de Emprego" com seis subagentes. São registros para administração; sem sessão ou modelo configurado, eles não aparecem como trabalhadores ativos no escritório. O painel oferece busca manual por termo na [API pública da Remotive](https://github.com/remotive-com/remote-jobs-api/blob/main/README.md), guarda anúncios com identificador e link originais e evita duplicatas por ID da fonte. Limita a quatro tentativas por dia UTC, incluindo falhas, conforme a recomendação de uso da fonte. A interface cita a Remotive e abre o anúncio original. Não extrai dados pessoais nem envia candidaturas.
 
-Cada vaga possui empresa, cargo, localidade, modalidade remota, salário quando publicado, descrição em texto, data de descoberta, URL, estado de candidatura e campos de avaliação. Requisitos e compatibilidade permanecem vazios/indeterminados até análise real e currículo confirmado. Filtros completos, periodicidade, mais fontes, análise, controle de candidatura e confirmação humana seguem pendentes.
+O painel permite ativar uma pesquisa periódica a cada 6, 12 ou 24 horas. O servidor guarda a próxima execução antes da chamada externa, evitando repetição imediata após queda; erros ficam visíveis na configuração. A agenda não foi ligada no ambiente de teste real e seu disparo automático foi verificado com fonte simulada. A busca manual real e a persistência foram verificadas separadamente.
+
+Cada vaga possui empresa, cargo, localidade, modalidade remota, salário quando publicado, descrição em texto, data de descoberta, URL, estado de candidatura e campos de avaliação. Requisitos e compatibilidade permanecem vazios/indeterminados até análise real e currículo confirmado. Filtros completos, mais fontes, análise, controle de candidatura e confirmação humana seguem pendentes.
 
 ## Execução local
 

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { JobStore, searchRemotive } from './jobs';
+import { JobStore, searchRemotive, runScheduledSearch } from './jobs';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -36,4 +36,25 @@ it('does not record a successful search when the source fails', async () => {
   await expect(searchRemotive(store, 'junior', async () => new Response('unavailable', { status: 503 }))).rejects.toThrow('503');
   expect(store.list()).toHaveLength(0);
   expect(store.searchesToday(new Date())).toBe(0);
+});
+
+it('runs a configured search when due and retains its next run after restart', async () => {
+  const path = file(); const store = new JobStore(path);
+  const now = new Date('2026-11-06T12:00:00Z');
+  store.configure({ query: 'suporte', intervalHours: 6, enabled: true }, now);
+  const fetcher = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 }));
+  expect(await runScheduledSearch(store, fetcher, now)).toBe(true);
+  expect(await runScheduledSearch(store, fetcher, new Date('2026-11-06T13:00:00Z'))).toBe(false);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(new JobStore(path).schedule()).toMatchObject({ query: 'suporte', enabled: true, nextRunAt: '2026-11-06T18:00:00.000Z' });
+});
+
+it('records scheduler errors and does not retry continuously', async () => {
+  const store = new JobStore(file()); const now = new Date('2026-11-06T12:00:00Z');
+  store.configure({ query: 'assistente', intervalHours: 6, enabled: true }, now);
+  const fetcher = vi.fn(async () => new Response('down', { status: 503 }));
+  expect(await runScheduledSearch(store, fetcher, now)).toBe(true);
+  expect(await runScheduledSearch(store, fetcher, now)).toBe(false);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(store.schedule()?.lastError).toContain('503');
 });
