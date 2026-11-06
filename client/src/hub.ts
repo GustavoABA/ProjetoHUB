@@ -11,7 +11,8 @@ type RouterStatus = { models: { id: string; provider: string; model: string; pri
 type McpStatus = { configured: boolean; port: number; ngrok: { installed: boolean; running: boolean; mcpUrl?: string; error?: string }; github: { configured: boolean; lastPublishAt?: string; lastError?: string } };
 type AdminSession = { installationId: string; startedAt: string; expiresAt: string; policy: 'renew' | 'notify' | 'close'; remainingSeconds: number; expired: boolean };
 type Question = { id: string; taskId: string; applicationId?: string; text: string; state: 'pending' | 'answered' | 'cancelled'; answer?: string; createdAt: string; deadline?: string };
-type Application = { id: string; jobId: string; title: string; company: string; originalUrl: string; status: 'draft' | 'awaiting_approval' | 'approved'; answers: Record<string, string>; approvedAt?: string };
+type Application = { id: string; jobId: string; title: string; company: string; originalUrl: string; status: 'draft' | 'awaiting_approval' | 'approved' | 'submitting' | 'submission_uncertain' | 'submitted'; answers: Record<string, string>; approvedAt?: string;
+  submission?: { pageUrl: string; confirmationText?: string; confirmedAt?: string; error?: string } };
 const statusLabel: Record<string, string> = { unassigned: 'aguardando execução', queued: 'na fila', dispatching: 'em processamento', sent: 'instrução aceita pelo Codex', waiting_input: 'aguardando resposta', paused: 'pausada', done: 'concluída', result_ready: 'resposta local pronta para revisão', failed: 'erro na execução', interrupted: 'execução interrompida; requer revisão', cancelled: 'cancelada' };
 
 const css = `
@@ -52,7 +53,7 @@ export function mountHubPanel(): void {
     <h3>Vagas remotas</h3><form id="hub-job-form"><label>Pesquisar na Remotive<input name="query" maxlength="100" required placeholder="Ex.: assistente, suporte, júnior"></label><button>Buscar vagas</button></form>
     <form id="hub-schedule-form"><label>Pesquisa automática<input name="query" maxlength="100" required placeholder="Termo de pesquisa"></label><label>Intervalo<select name="interval"><option value="6">6 horas</option><option value="12">12 horas</option><option value="24">24 horas</option></select></label><label><span>Ativar</span><input name="enabled" type="checkbox"></label><button>Salvar agenda</button></form><p id="hub-schedule-status"></p>
     <p>Fonte: Remotive. A consulta pública tem limite de quatro tentativas por dia; as vagas exibidas levam ao anúncio original.</p>
-    <h3>Candidaturas</h3><p>Respostas inseridas aqui devem ser confirmadas por você. Aprovar um rascunho ainda não envia a candidatura.</p>
+    <h3>Candidaturas</h3><p>Respostas inseridas aqui devem ser confirmadas por você. Abra a página da vaga no navegador abaixo, faça login e acesse o formulário. O preparo tenta preencher campos com os mesmos rótulos das respostas. Revise tudo antes de autorizar e enviar. O sistema só marca como enviada quando a confirmação aparece na página.</p>
     <form id="hub-application-form"><label>Vaga<select name="job" required></select></label><button>Preparar candidatura</button></form><ul id="hub-applications"></ul>
     <h3>Navegador</h3><div><button type="button" data-browser-visible>Abrir visível</button> <button type="button" data-browser-headless>Abrir em segundo plano</button> <button type="button" data-browser-manual>Assumir controle</button> <button type="button" data-browser-stop>Fechar</button></div>
     <form id="hub-browser-form"><label>Endereço<input name="url" type="url" required placeholder="https://..."></label><button>Abrir página</button></form><p id="hub-browser-status"></p><ul id="hub-browser-pages"></ul>
@@ -224,20 +225,66 @@ export function mountHubPanel(): void {
     }
     const applicationList = panel.querySelector('#hub-applications')!; applicationList.replaceChildren();
     for (const app of applications.slice().reverse().slice(0, 100)) {
-      const li = document.createElement('li'); li.textContent = `${app.title} — ${app.company} · ${app.status === 'draft' ? 'rascunho' : app.status === 'awaiting_approval' ? 'aguardando aprovação' : 'aprovada; envio ainda não executado'} `;
+      const statusText: Record<Application['status'], string> = { draft: 'rascunho', awaiting_approval: 'aguardando aprovação', approved: 'envio autorizado; ainda não executado', submitting: 'envio em andamento', submission_uncertain: 'envio incerto; verificar no portal', submitted: 'envio confirmado na página' };
+      const li = document.createElement('li'); li.textContent = `${app.title} — ${app.company} · ${statusText[app.status]} `;
       const source = document.createElement('a'); source.href = app.originalUrl; source.target = '_blank'; source.rel = 'noopener noreferrer'; source.textContent = 'Vaga original'; source.style.color = '#c9bdff'; li.append(source);
+      if (app.status !== 'submitted') {
+        const openInBrowser = document.createElement('button'); openInBrowser.textContent = 'Abrir vaga no navegador do escritório';
+        openInBrowser.onclick = () => void (async () => {
+          const started = await api<BrowserStatus>('/api/hub/browser/start', { headless: false });
+          if (started.headless) throw new Error('Feche o navegador em segundo plano e abra no modo visível para login manual.');
+          await api('/api/hub/browser/pages', { url: app.originalUrl });
+          message.textContent = 'Vaga aberta no navegador do escritório. Acesse o formulário e escolha a aba na candidatura.';
+          await refresh();
+        })().catch(showError);
+        li.append(openInBrowser);
+      }
       const answers = document.createElement('small'); answers.textContent = ` · ${Object.keys(app.answers).length} resposta(s) confirmada(s)`; li.append(answers);
+      if (app.submission?.confirmationText) { const proof = document.createElement('small'); proof.textContent = ` · Confirmação: ${app.submission.confirmationText} · ${app.submission.pageUrl}`; li.append(proof); }
+      if (app.status === 'submitted') { const screenshot = document.createElement('a'); screenshot.href = `/api/hub/applications/${app.id}/evidence`; screenshot.target = '_blank'; screenshot.rel = 'noopener noreferrer'; screenshot.textContent = 'Ver captura da confirmação'; screenshot.style.color = '#c9bdff'; li.append(screenshot); }
       const form = document.createElement('form');
       const field = document.createElement('input'); field.placeholder = 'Campo do formulário'; field.maxLength = 100; field.required = true; field.setAttribute('aria-label', 'Campo do formulário');
       const value = document.createElement('input'); value.placeholder = 'Resposta confirmada por você'; value.maxLength = 5000; value.required = true; value.setAttribute('aria-label', 'Resposta confirmada');
       const save = document.createElement('button'); save.textContent = 'Salvar resposta'; form.append(field, value, save);
       form.onsubmit = (event) => { event.preventDefault(); void api(`/api/hub/applications/${app.id}/answers`, { answers: { ...app.answers, [field.value]: value.value } }, 'PUT').then(refresh).catch(showError); };
-      li.append(form);
+      if (!['submitting', 'submission_uncertain', 'submitted'].includes(app.status)) li.append(form);
+      if (['draft', 'awaiting_approval', 'approved', 'submission_uncertain'].includes(app.status)) {
+        const execution = document.createElement('form');
+        const pageSelect = document.createElement('select'); pageSelect.required = true; pageSelect.setAttribute('aria-label', 'Aba do formulário');
+        option(pageSelect, '', 'Escolha a aba do formulário');
+        for (const page of browser.pages) option(pageSelect, page.id, page.url.slice(0, 100));
+        execution.append(pageSelect);
+        if (app.status !== 'submission_uncertain') {
+          const prepare = document.createElement('button'); prepare.type = 'button'; prepare.textContent = 'Preencher respostas na aba';
+          prepare.onclick = () => void api<{ filled: string[]; missing: string[] }>(`/api/hub/applications/${app.id}/prepare`, { pageId: pageSelect.value }).then((outcome) => {
+            message.textContent = `${outcome.filled.length} campo(s) preenchido(s); ${outcome.missing.length} não encontrado(s): ${outcome.missing.join(', ') || 'nenhum'}. Revise o formulário.`;
+          }).catch(showError);
+          execution.append(prepare);
+        }
+        if (app.status === 'approved' || app.status === 'submission_uncertain') {
+          const confirmation = document.createElement('input'); confirmation.required = true; confirmation.maxLength = 200; confirmation.placeholder = 'Texto exato da confirmação esperada'; confirmation.setAttribute('aria-label', 'Texto de confirmação'); execution.append(confirmation);
+          if (app.status === 'approved') {
+            const buttonText = document.createElement('input'); buttonText.required = true; buttonText.maxLength = 200; buttonText.placeholder = 'Texto exato do botão final'; buttonText.setAttribute('aria-label', 'Texto do botão final'); execution.append(buttonText);
+            const submit = document.createElement('button'); submit.textContent = 'Enviar candidatura autorizada'; execution.append(submit);
+            execution.onsubmit = (event) => { event.preventDefault(); const pageUrl = browser.pages.find((page) => page.id === pageSelect.value)?.url;
+              if (!pageUrl || !window.confirm(`Enviar agora a candidatura para ${app.company} na página ${pageUrl}? Verifique o formulário antes de confirmar.`)) return;
+              void api<Application>(`/api/hub/applications/${app.id}/submit`, { pageId: pageSelect.value, buttonText: buttonText.value, confirmationText: confirmation.value }).then((outcome) => {
+                message.textContent = outcome.status === 'submitted' ? 'Envio confirmado na página; evidência salva.' : 'Envio incerto. Verifique o portal; não repita a candidatura.'; return refresh();
+              }).catch(showError); };
+          } else {
+            const verify = document.createElement('button'); verify.textContent = 'Verificar confirmação na aba'; execution.append(verify);
+            execution.onsubmit = (event) => { event.preventDefault(); void api<Application>(`/api/hub/applications/${app.id}/verify-submission`, { pageId: pageSelect.value, confirmationText: confirmation.value }).then(() => {
+              message.textContent = 'Confirmação encontrada na página; evidência salva.'; return refresh();
+            }).catch(showError); };
+          }
+        }
+        li.append(execution);
+      }
       if (app.status === 'draft' && Object.keys(app.answers).length) {
         const request = document.createElement('button'); request.textContent = 'Solicitar aprovação';
         request.onclick = () => void api(`/api/hub/applications/${app.id}/request-approval`, {}).then(refresh).catch(showError); li.append(request);
       } else if (app.status === 'awaiting_approval') {
-        const approve = document.createElement('button'); approve.textContent = 'Aprovar preparo';
+        const approve = document.createElement('button'); approve.textContent = 'Autorizar envio final';
         approve.onclick = () => void api(`/api/hub/applications/${app.id}/approve`, {}).then(refresh).catch(showError);
         const deny = document.createElement('button'); deny.textContent = 'Recusar';
         deny.onclick = () => void api(`/api/hub/applications/${app.id}/deny`, {}).then(refresh).catch(showError); li.append(approve, deny);

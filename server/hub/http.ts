@@ -171,6 +171,51 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     } else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
+  const applicationEvidence = /^\/api\/hub\/applications\/([0-9a-f-]+)\/evidence$/.exec(path);
+  if (applicationEvidence) {
+    if (!applications) sendJson(res, 503, { error: 'Candidaturas indisponíveis' });
+    else if (req.method !== 'GET') sendJson(res, 405, { error: 'Método não permitido' });
+    else try {
+      const png = applications.evidence(applicationEvidence[1]);
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length, 'Cache-Control': 'no-store' }); res.end(png);
+    } catch (error) { fail(res, error); }
+    return true;
+  }
+  const submissionAction = /^\/api\/hub\/applications\/([0-9a-f-]+)\/(prepare|submit|verify-submission)$/.exec(path);
+  if (submissionAction) {
+    if (!applications || !browser) { sendJson(res, 503, { error: 'Envio de candidaturas indisponível' }); return true; }
+    if (req.method !== 'POST') { sendJson(res, 405, { error: 'Método não permitido' }); return true; }
+    void readJson(req).then(async (raw) => {
+      const body = record(raw), app = applications.get(submissionAction[1]);
+      if (!app) { sendJson(res, 404, { error: 'Candidatura não encontrada' }); return; }
+      const pageId = string(body.pageId, 'página');
+      const page = browser.status().pages.find((candidate) => candidate.id === pageId);
+      if (!page) { sendJson(res, 404, { error: 'Página do navegador não encontrada' }); return; }
+      if (submissionAction[2] === 'prepare') {
+        if (!['draft', 'awaiting_approval', 'approved'].includes(app.status)) throw new Error('Candidatura já possui tentativa de envio');
+        sendJson(res, 200, await browser.fillAnswersByLabel(pageId, app.answers));
+        return;
+      }
+      const confirmationText = string(body.confirmationText, 'texto de confirmação');
+      if (submissionAction[2] === 'verify-submission') {
+        if (app.status !== 'submission_uncertain') throw new Error('A candidatura não está com envio incerto');
+        const evidence = await browser.verifyConfirmationText(pageId, confirmationText);
+        sendJson(res, 200, applications.confirmSubmission(app.id, evidence));
+        return;
+      }
+      if (app.status !== 'approved') throw new Error('A candidatura precisa estar aprovada antes do envio final');
+      const buttonText = string(body.buttonText, 'texto do botão final');
+      await browser.submissionReadyByText(pageId, buttonText, confirmationText);
+      applications.startSubmission(app.id, page.url);
+      try {
+        const evidence = await browser.submitByTextAndConfirm(pageId, buttonText, confirmationText);
+        sendJson(res, 200, applications.confirmSubmission(app.id, evidence));
+      } catch {
+        sendJson(res, 202, { ...applications.markSubmissionUncertain(app.id, 'Confirmação não verificada após tentativa de envio'), warning: 'Envio incerto. Confira o portal antes de qualquer nova ação.' });
+      }
+    }).catch((error) => fail(res, error));
+    return true;
+  }
   if (path === '/api/hub/browser') {
     if (req.method !== 'GET') sendJson(res, 405, { error: 'Método não permitido' });
     else sendJson(res, 200, browser?.status() ?? { running: false, headless: false, manual: false, pages: [] });

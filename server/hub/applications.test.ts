@@ -50,3 +50,19 @@ it('rejects unsafe source links and oversized answers', () => {
   expect(() => store.setAnswers(app.id, { Senha: 'não guardar' })).toThrow('credencial');
   expect(store.setAnswers(app.id, { Experiência: 'Nenhuma' }).answers).toMatchObject({ Experiência: 'Nenhuma' });
 });
+
+it('persists an uncertain submission after restart and only confirms with browser evidence', () => {
+  const { file, store } = setup(); const app = store.create(vacancy);
+  store.setAnswers(app.id, { name: 'Nome confirmado' });
+  store.requestApproval(app.id); store.approve(app.id);
+  const attempt = store.startSubmission(app.id, 'https://empresa.example/apply');
+  expect(attempt.status).toBe('submitting');
+  const recovered = new ApplicationStore(file);
+  expect(recovered.get(app.id)?.status).toBe('submission_uncertain');
+  expect(() => recovered.startSubmission(app.id, 'https://empresa.example/apply')).toThrow();
+  expect(() => recovered.setAnswers(app.id, { name: 'Mudança' })).toThrow();
+  const done = recovered.confirmSubmission(app.id, { url: 'https://empresa.example/thanks', confirmationText: 'Candidatura recebida', screenshot: Buffer.from('89504e470d0a1a0a00112233', 'hex') });
+  expect(done).toMatchObject({ status: 'submitted', submission: { confirmationText: 'Candidatura recebida' } });
+  expect(recovered.evidence(app.id)).toEqual(Buffer.from('89504e470d0a1a0a00112233', 'hex'));
+  expect(new ApplicationStore(file).get(app.id)?.status).toBe('submitted');
+});
