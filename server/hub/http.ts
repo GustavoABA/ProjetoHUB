@@ -482,7 +482,9 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
         ...(body.codexThread === undefined ? {} : { codexThread: string(body.codexThread, 'sessão Codex') }),
         ...(body.codexHome === undefined ? {} : { codexHome: string(body.codexHome, 'pasta Codex') }),
         ...(body.modelId === undefined ? {} : { modelId: string(body.modelId, 'modelo') }),
-        ...(body.fallbackModelIds === undefined ? {} : { fallbackModelIds: fallbackIds(body.fallbackModelIds, router) }) });
+        ...(body.fallbackModelIds === undefined ? {} : { fallbackModelIds: fallbackIds(body.fallbackModelIds, router) }),
+        ...(body.monthlyAiRequestLimit === undefined ? {} : { monthlyAiRequestLimit: optionalPolicyNumber(body.monthlyAiRequestLimit, 'limite de chamadas do agente') as number }),
+        ...(body.monthlyAiCostLimitUsd === undefined ? {} : { monthlyAiCostLimitUsd: optionalPolicyNumber(body.monthlyAiCostLimitUsd, 'limite de custo do agente') as number }) });
       sendJson(res, 201, agent);
     }).catch((error) => fail(res, error));
     else sendJson(res, 405, { error: 'Método não permitido' });
@@ -503,7 +505,9 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
         ...(body.modelId === undefined ? {} : { modelId: body.modelId === null ? null : string(body.modelId, 'modelo') }),
         ...(body.fallbackModelIds === undefined ? {} : { fallbackModelIds: body.fallbackModelIds === null ? null : fallbackIds(body.fallbackModelIds, router) }),
         ...(body.codexThread === undefined ? {} : { codexThread: body.codexThread === null ? null : string(body.codexThread, 'sessão Codex') }),
-        ...(body.codexHome === undefined ? {} : { codexHome: body.codexHome === null ? null : string(body.codexHome, 'pasta Codex') }) }));
+        ...(body.codexHome === undefined ? {} : { codexHome: body.codexHome === null ? null : string(body.codexHome, 'pasta Codex') }),
+        ...(body.monthlyAiRequestLimit === undefined ? {} : { monthlyAiRequestLimit: optionalPolicyNumber(body.monthlyAiRequestLimit, 'limite de chamadas do agente') }),
+        ...(body.monthlyAiCostLimitUsd === undefined ? {} : { monthlyAiCostLimitUsd: optionalPolicyNumber(body.monthlyAiCostLimitUsd, 'limite de custo do agente') }) }));
     }).catch((error) => fail(res, error));
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;

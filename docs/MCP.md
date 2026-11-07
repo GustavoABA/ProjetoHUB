@@ -19,6 +19,8 @@ A chave é aleatória e somente seu hash é persistido em `<dataDir>/projecthub/
 
 `criar_agente` e `atualizar_agente` também aceitam `modeloId` e `modelosReservaIds` (lista ordenada de até três modelos cadastrados) para agentes sem Codex. Em `atualizar_agente`, envie `modeloId: null` e `modelosReservaIds: []` para voltar ao Ollama automático. As reservas só são tentadas após falhas recuperáveis, com o contexto da tarefa, e podem usar outro provedor configurado.
 
+As duas ferramentas de agente aceitam `limiteMensalChamadasIA` (inteiro de 1 a 1.000.000) e `limiteMensalCustoEstimadoUSD` (valor positivo). São limites das chamadas feitas pelo roteador local, somando modelo principal e reservas, não das cotas oficiais do Codex. Em `atualizar_agente`, use `null` para remover um limite. `listar_agentes` mostra a configuração; `consultar_roteador` mostra a contagem mensal em `agentUsage`, indexada pelo ID do agente. O custo é uma estimativa baseada em preços por modelo informados no HUD.
+
 O estado `sent` indica que o Codex aceitou uma instrução na fila; não comprova a conclusão do trabalho. `result_ready` indica uma resposta textual do Ollama aguardando revisão; não comprova ações externas. Candidaturas `approved` ainda não foram enviadas.
 
 ## ChatGPT

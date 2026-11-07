@@ -324,3 +324,11 @@ O roteador permite configurar no HUD e na API um limite mensal de tentativas por
 
 **Reteste local Codex → Ollama:** o serviço Ollama desta máquina respondeu na porta 11434. O teste optativo `PROJECTHUB_OLLAMA_E2E=1 npx vitest run server/hub/codex-ollama.integration.test.ts` passou com uma geração real no modelo local e persistiu o resultado como `result_ready`, identificado com provedor `ollama`. A resposta de indisponibilidade do Codex nesse teste é simulada; uma sessão Codex real não foi desligada nem recebeu instrução.
 
+## Atualização: limites de IA roteada por agente
+
+O administrador pode definir no HUD, na API local ou pelo MCP autenticado um limite mensal de chamadas de IA roteadas e um teto mensal de custo estimado para cada agente. O roteador persiste contadores por ID de agente e reserva a chamada antes de enviar à rede. As chamadas do modelo principal e das reservas compartilham o mesmo limite. O Analista de requisitos envia sua identidade e política ao roteador; respostas textuais gerais e o fallback local após indisponibilidade inequívoca do Codex também. O painel mostra chamadas, tokens e custo estimado por agente no mês. Um agente sem limites ainda tem o consumo registrado para acompanhamento.
+
+**Limites:** os contadores por agente não incluem o uso direto da conta Codex, navegação, pesquisa de vagas, WhatsApp ou outras ações que não chamam o roteador. O teto de custo tem as mesmas limitações de estimativa descritas acima; quando falta preço ou contagem de tokens, o roteador registra resposta sem preço e suspende novas chamadas do agente com teto até a próxima competência mensal ou mudança de política. O valor é calculado com preços configurados por modelo, não com fatura do provedor.
+
+**Verificação desta atualização:** testes cobrem persistência e edição de limites, identificação do agente no despacho e no Analista, soma entre modelos principal e reserva, teto por custo, resposta sem contagem e reserva concorrente. Rotas HTTP locais e ferramenta MCP autenticada foram testadas com stores temporários. `npm test` passou com 2.034 testes aprovados e 18 ignorados em 190 arquivos; checagem de tipos e build passaram. Nenhuma cobrança real de provedor externo foi gerada para esses testes, e o HUD não foi inspecionado visualmente nesta rodada.
+

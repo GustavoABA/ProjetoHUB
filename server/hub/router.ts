@@ -10,7 +10,9 @@ export type Model = { id: string; provider: Provider; model: string; priority: n
 type ModelUsage = { month: string; requests: number; inputTokens: number; outputTokens: number; estimatedCostUsd: number; unpricedRequests: number };
 type UsagePolicy = Pick<Model, 'monthlyRequestLimit' | 'monthlyCostLimitUsd' | 'inputUsdPerMillion' | 'outputUsdPerMillion'>;
 type UsagePolicyChanges = { [K in keyof UsagePolicy]?: number | null };
-type State = { version: 1; models: Model[]; usage: { inputTokens: number; outputTokens: number; requests: number; estimatedCostUsd?: number; unpricedRequests?: number }; modelUsage?: Record<string, ModelUsage>; lastError?: string };
+export type AgentUsagePolicy = { agentId: string; monthlyRequestLimit?: number; monthlyCostLimitUsd?: number };
+type State = { version: 1; models: Model[]; usage: { inputTokens: number; outputTokens: number; requests: number; estimatedCostUsd?: number; unpricedRequests?: number };
+  modelUsage?: Record<string, ModelUsage>; agentUsage?: Record<string, ModelUsage>; lastError?: string };
 export type Completion = { text: string; provider: Provider; model: string; inputTokens: number | null; outputTokens: number | null };
 const endpoints: Record<Provider, string> = {
   openai: 'https://api.openai.com/v1/chat/completions',
@@ -58,38 +60,72 @@ export class ModelRouter {
     const saved = this.state.modelUsage?.[id];
     return saved?.month === month ? { ...saved } : emptyUsage(month);
   }
+  agentUsage(id: string): ModelUsage {
+    const month = new Date().toISOString().slice(0, 7);
+    const saved = this.state.agentUsage?.[id];
+    return saved?.month === month ? { ...saved } : emptyUsage(month);
+  }
+  private agentLimitReached(policy?: AgentUsagePolicy): boolean {
+    if (!policy) return false;
+    const used = this.agentUsage(policy.agentId);
+    return (policy.monthlyRequestLimit !== undefined && used.requests >= policy.monthlyRequestLimit) ||
+      (policy.monthlyCostLimitUsd !== undefined && (used.unpricedRequests > 0 || used.estimatedCostUsd >= policy.monthlyCostLimitUsd));
+  }
+  private validateAgentPolicy(policy?: AgentUsagePolicy): void {
+    if (!policy) return;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(policy.agentId) ||
+      (policy.monthlyRequestLimit !== undefined && (!Number.isSafeInteger(policy.monthlyRequestLimit) || policy.monthlyRequestLimit < 1 || policy.monthlyRequestLimit > 1_000_000)) ||
+      (policy.monthlyCostLimitUsd !== undefined && (!Number.isFinite(policy.monthlyCostLimitUsd) || policy.monthlyCostLimitUsd <= 0 || policy.monthlyCostLimitUsd > 1_000_000)))
+      throw new Error('Limite mensal do agente inválido');
+  }
   private canUse(model: Model): boolean {
     const used = this.monthlyUsage(model.id);
     return model.enabled && (this.credentials?.configured(model.provider) ?? (keys[model.provider] === null || Boolean(this.env[keys[model.provider]!]))) &&
       (model.monthlyRequestLimit === undefined || used.requests < model.monthlyRequestLimit) &&
       (model.monthlyCostLimitUsd === undefined || (used.unpricedRequests === 0 && used.estimatedCostUsd < model.monthlyCostLimitUsd));
   }
-  private reserve(model: Model): void {
+  private reserve(model: Model, policy?: AgentUsagePolicy): void {
     const usage = this.monthlyUsage(model.id);
     usage.requests++;
     this.state.modelUsage ??= {};
     this.state.modelUsage[model.id] = usage;
+    if (policy) {
+      const agent = this.agentUsage(policy.agentId);
+      agent.requests++;
+      this.state.agentUsage ??= {};
+      this.state.agentUsage[policy.agentId] = agent;
+    }
     this.save();
   }
-  private recordUsage(model: Model, inputTokens: number | null, outputTokens: number | null): void {
+  private recordUsage(model: Model, inputTokens: number | null, outputTokens: number | null, policy?: AgentUsagePolicy): void {
     const usage = this.monthlyUsage(model.id);
     usage.inputTokens += inputTokens ?? 0;
     usage.outputTokens += outputTokens ?? 0;
-    if (inputTokens === null || outputTokens === null || (model.provider !== 'ollama' &&
-      (model.inputUsdPerMillion === undefined || model.outputUsdPerMillion === undefined))) usage.unpricedRequests++;
+    const unpriced = inputTokens === null || outputTokens === null || (model.provider !== 'ollama' &&
+      (model.inputUsdPerMillion === undefined || model.outputUsdPerMillion === undefined));
+    const cost = unpriced ? 0 : ((inputTokens ?? 0) * (model.inputUsdPerMillion ?? 0) + (outputTokens ?? 0) * (model.outputUsdPerMillion ?? 0)) / 1_000_000;
+    if (unpriced) usage.unpricedRequests++;
     else {
-      const cost = (inputTokens * (model.inputUsdPerMillion ?? 0) + outputTokens * (model.outputUsdPerMillion ?? 0)) / 1_000_000;
       usage.estimatedCostUsd += cost;
       this.state.usage.estimatedCostUsd = (this.state.usage.estimatedCostUsd ?? 0) + cost;
     }
-    if (inputTokens === null || outputTokens === null || (model.provider !== 'ollama' &&
-      (model.inputUsdPerMillion === undefined || model.outputUsdPerMillion === undefined)))
-      this.state.usage.unpricedRequests = (this.state.usage.unpricedRequests ?? 0) + 1;
+    if (unpriced) this.state.usage.unpricedRequests = (this.state.usage.unpricedRequests ?? 0) + 1;
     this.state.modelUsage ??= {};
     this.state.modelUsage[model.id] = usage;
+    if (policy) {
+      const agent = this.agentUsage(policy.agentId);
+      agent.inputTokens += inputTokens ?? 0;
+      agent.outputTokens += outputTokens ?? 0;
+      if (unpriced) agent.unpricedRequests++;
+      else agent.estimatedCostUsd += cost;
+      this.state.agentUsage ??= {};
+      this.state.agentUsage[policy.agentId] = agent;
+    }
   }
   status() {
-    return { models: this.state.models.map((m) => ({ ...m, available: this.canUse(m), monthlyUsage: this.monthlyUsage(m.id) })), usage: { ...this.state.usage }, lastError: this.state.lastError };
+    return { models: this.state.models.map((m) => ({ ...m, available: this.canUse(m), monthlyUsage: this.monthlyUsage(m.id) })),
+      agentUsage: Object.fromEntries(Object.keys(this.state.agentUsage ?? {}).map((id) => [id, this.agentUsage(id)])),
+      usage: { ...this.state.usage }, lastError: this.state.lastError };
   }
   /** Register the smallest installed local model only when the user has not configured Ollama. */
   async discoverLocalModel(): Promise<Model | undefined> {
@@ -147,8 +183,10 @@ export class ModelRouter {
     Object.assign(model, next);
     this.save(); return { ...model };
   }
-  async complete(messages: Message[], onlyProvider?: Provider, onlyModelId?: string, fallbackModelIds?: string[]): Promise<Completion> {
+  async complete(messages: Message[], onlyProvider?: Provider, onlyModelId?: string, fallbackModelIds?: string[], agentPolicy?: AgentUsagePolicy): Promise<Completion> {
     validMessages(messages);
+    this.validateAgentPolicy(agentPolicy);
+    if (this.agentLimitReached(agentPolicy)) throw new Error('Limite mensal do agente atingido ou custo não mensurável');
     if (onlyModelId && !this.state.models.some((m) => m.id === onlyModelId) && !fallbackModelIds?.length) throw new Error('Modelo selecionado não encontrado');
     if (fallbackModelIds !== undefined && (!onlyModelId || onlyProvider || !Array.isArray(fallbackModelIds) || fallbackModelIds.length > 3 ||
       fallbackModelIds.some((id) => typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) ||
@@ -160,10 +198,12 @@ export class ModelRouter {
     if (onlyModelId && !available.length) throw new Error('Modelo selecionado indisponível; verifique a credencial e o estado do modelo');
     if (!available.length) throw new Error('Nenhum modelo disponível: cadastre um modelo e configure a credencial do provedor');
     for (const model of available) {
+      if (this.agentLimitReached(agentPolicy)) throw new Error('Limite mensal do agente atingido ou custo não mensurável');
       if (!this.canUse(model)) continue;
       let key: string | undefined;
       try { key = this.credentials ? await this.credentials.get(model.provider) : keys[model.provider] ? this.env[keys[model.provider]!] : undefined; }
       catch { this.state.lastError = `${model.provider}: credencial local indisponível`; this.save(); continue; }
+      if (this.agentLimitReached(agentPolicy)) throw new Error('Limite mensal do agente atingido ou custo não mensurável');
       const anthropic = model.provider === 'anthropic';
       const system = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n\n');
       const body = anthropic ? { model: model.model, max_tokens: 1024, ...(system ? { system } : {}), messages: messages.filter((m) => m.role !== 'system') } : { model: model.model, messages };
@@ -172,7 +212,7 @@ export class ModelRouter {
       else if (key) headers.Authorization = `Bearer ${key}`;
       if (model.provider === 'gemini') headers['x-goog-api-client'] = 'projecthub/0.1';
       try {
-        this.reserve(model);
+        this.reserve(model, agentPolicy);
         const response = await this.fetcher(endpoints[model.provider], { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(model.provider === 'ollama' ? 180_000 : 60_000) });
         if (!response.ok) {
           this.state.lastError = `${model.provider}: HTTP ${response.status}`; this.save();
@@ -185,7 +225,7 @@ export class ModelRouter {
         if (typeof text !== 'string' || !text.trim()) throw new Error(`${model.provider}: resposta sem texto`);
         const inputTokens = tokenCount(anthropic ? data.usage?.input_tokens : data.usage?.prompt_tokens);
         const outputTokens = tokenCount(anthropic ? data.usage?.output_tokens : data.usage?.completion_tokens);
-        this.recordUsage(model, inputTokens, outputTokens);
+        this.recordUsage(model, inputTokens, outputTokens, agentPolicy);
         this.state.usage.inputTokens += inputTokens ?? 0; this.state.usage.outputTokens += outputTokens ?? 0; this.state.usage.requests++;
         this.state.lastError = undefined; this.save();
         return { text, provider: model.provider, model: model.model, inputTokens, outputTokens };

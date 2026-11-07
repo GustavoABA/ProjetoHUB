@@ -13,6 +13,8 @@ export interface HubAgent {
   codexHome?: string;
   modelId?: string;
   fallbackModelIds?: string[];
+  monthlyAiRequestLimit?: number;
+  monthlyAiCostLimitUsd?: number;
   createdAt: string;
   status?: 'active' | 'paused' | 'ended';
   systemKey?: string;
@@ -56,6 +58,12 @@ function required(value: string, label: string, max: number): string {
   const clean = value?.trim();
   if (!clean || clean.length > max) throw new Error(`${label} deve conter de 1 a ${max} caracteres`);
   return clean;
+}
+function validAgentLimit(requests?: number | null, cost?: number | null): void {
+  if (requests !== undefined && requests !== null && (!Number.isSafeInteger(requests) || requests < 1 || requests > 1_000_000))
+    throw new Error('Limite mensal de chamadas do agente inválido');
+  if (cost !== undefined && cost !== null && (!Number.isFinite(cost) || cost <= 0 || cost > 1_000_000))
+    throw new Error('Limite mensal de custo do agente inválido');
 }
 function validatedFallbacks(ids: string[] | undefined, primary?: string, codexThread?: string): string[] | undefined {
   if (ids === undefined) return undefined;
@@ -117,7 +125,8 @@ export class HubStore {
     if (changed) this.save();
   }
 
-  createAgent(input: { name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string; modelId?: string; fallbackModelIds?: string[] }): HubAgent {
+  createAgent(input: { name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string; modelId?: string; fallbackModelIds?: string[];
+    monthlyAiRequestLimit?: number; monthlyAiCostLimitUsd?: number }): HubAgent {
     const name = required(input.name, 'nome', 100);
     const objective = required(input.objective, 'objetivo', 2000);
     if (input.parentId && (!this.agent(input.parentId) || this.agent(input.parentId)?.status === 'ended')) throw new Error('Agente principal não encontrado ou encerrado');
@@ -126,10 +135,14 @@ export class HubStore {
     if (input.modelId !== undefined && !THREAD_ID.test(input.modelId)) throw new Error('ID do modelo inválido');
     if (input.modelId && input.codexThread) throw new Error('Agente com sessão Codex usa Ollama como fallback; escolha um modelo apenas para agente sem Codex');
     const fallbackModelIds = validatedFallbacks(input.fallbackModelIds, input.modelId, input.codexThread);
+    if (input.monthlyAiRequestLimit === null || input.monthlyAiCostLimitUsd === null) throw new Error('Limite mensal do agente inválido');
+    validAgentLimit(input.monthlyAiRequestLimit, input.monthlyAiCostLimitUsd);
     const agent: HubAgent = { id: randomUUID(), name, objective, createdAt: new Date().toISOString(),
       ...(input.parentId ? { parentId: input.parentId } : {}),
       ...(input.codexThread ? { codexThread: input.codexThread, codexHome: input.codexHome } : {}),
-      ...(input.modelId ? { modelId: input.modelId } : {}), ...(fallbackModelIds ? { fallbackModelIds } : {}) };
+      ...(input.modelId ? { modelId: input.modelId } : {}), ...(fallbackModelIds ? { fallbackModelIds } : {}),
+      ...(input.monthlyAiRequestLimit === undefined ? {} : { monthlyAiRequestLimit: input.monthlyAiRequestLimit }),
+      ...(input.monthlyAiCostLimitUsd === undefined ? {} : { monthlyAiCostLimitUsd: input.monthlyAiCostLimitUsd }) };
     this.state.agents.push(agent);
     this.save();
     return structuredClone(agent);
@@ -238,7 +251,8 @@ export class HubStore {
     this.save(); return structuredClone(task);
   }
 
-  updateAgent(id: string, changes: { name?: string; objective?: string; modelId?: string | null; fallbackModelIds?: string[] | null; codexThread?: string | null; codexHome?: string | null }): HubAgent {
+  updateAgent(id: string, changes: { name?: string; objective?: string; modelId?: string | null; fallbackModelIds?: string[] | null; codexThread?: string | null; codexHome?: string | null;
+    monthlyAiRequestLimit?: number | null; monthlyAiCostLimitUsd?: number | null }): HubAgent {
     const agent = this.state.agents.find((a) => a.id === id);
     if (!agent) throw new Error('Agente não encontrado');
     if (agent.status === 'ended') throw new Error('Agente encerrado não pode ser editado');
@@ -257,6 +271,7 @@ export class HubStore {
     }
     if (nextThread && nextModel) throw new Error('Agente com sessão Codex usa Ollama como fallback; remova o modelo externo antes de vincular');
     const nextFallbacks = validatedFallbacks(changes.fallbackModelIds === undefined ? agent.fallbackModelIds : changes.fallbackModelIds ?? [], nextModel, nextThread);
+    validAgentLimit(changes.monthlyAiRequestLimit, changes.monthlyAiCostLimitUsd);
     if (linkChange && (nextThread !== agent.codexThread || nextHome !== agent.codexHome) &&
       this.state.tasks.some((task) => task.agentId === id && task.status === 'dispatching')) throw new Error('Aguarde a tarefa em andamento antes de alterar a sessão Codex');
     if (name !== undefined) agent.name = name;
@@ -268,6 +283,14 @@ export class HubStore {
     if (changes.fallbackModelIds !== undefined) {
       if (nextFallbacks) agent.fallbackModelIds = nextFallbacks;
       else delete agent.fallbackModelIds;
+    }
+    if (changes.monthlyAiRequestLimit !== undefined) {
+      if (changes.monthlyAiRequestLimit === null) delete agent.monthlyAiRequestLimit;
+      else agent.monthlyAiRequestLimit = changes.monthlyAiRequestLimit;
+    }
+    if (changes.monthlyAiCostLimitUsd !== undefined) {
+      if (changes.monthlyAiCostLimitUsd === null) delete agent.monthlyAiCostLimitUsd;
+      else agent.monthlyAiCostLimitUsd = changes.monthlyAiCostLimitUsd;
     }
     if (linkChange) {
       if (nextThread) { agent.codexThread = nextThread; agent.codexHome = nextHome; }

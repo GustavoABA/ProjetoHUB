@@ -1,4 +1,5 @@
-type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string; modelId?: string; fallbackModelIds?: string[]; systemKey?: string; status?: 'active' | 'paused' | 'ended' };
+type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string; modelId?: string; fallbackModelIds?: string[];
+  monthlyAiRequestLimit?: number; monthlyAiCostLimitUsd?: number; systemKey?: string; status?: 'active' | 'paused' | 'ended' };
 type Task = { id: string; agentId: string; instruction: string; priority?: number; status: string; error?: string; result?: string; executionProvider?: string; executionModel?: string; localRetryCount?: number; nextAttemptAt?: string };
 type ExecutionStatus = { maxConcurrent: number; active: number };
 type Session = { name: string; sessionId: string; account: string; provider: string };
@@ -15,6 +16,7 @@ type BrowserStatus = { running: boolean; headless: boolean; manual: boolean; pag
 type RouterStatus = { models: { id: string; provider: string; model: string; priority: number; enabled: boolean; available: boolean;
   monthlyRequestLimit?: number; monthlyCostLimitUsd?: number; inputUsdPerMillion?: number; outputUsdPerMillion?: number;
   monthlyUsage: { month: string; requests: number; inputTokens: number; outputTokens: number; estimatedCostUsd: number; unpricedRequests: number } }[];
+  agentUsage: Record<string, { month: string; requests: number; inputTokens: number; outputTokens: number; estimatedCostUsd: number; unpricedRequests: number }>;
   usage: { inputTokens: number; outputTokens: number; requests: number; estimatedCostUsd?: number; unpricedRequests?: number }; lastError?: string };
 type ProviderCredentialStatus = Record<string, { configured: boolean; source: 'windows' | 'environment' | null }>;
 type McpStatus = { configured: boolean; port: number; ngrok: { installed: boolean; running: boolean; mcpUrl?: string; error?: string }; github: { configured: boolean; lastPublishAt?: string; lastError?: string } };
@@ -50,7 +52,7 @@ export function mountHubPanel(): void {
   const panel = document.createElement('section'); panel.id = 'projecthub-panel'; panel.hidden = true;
   panel.innerHTML = `<div class="hub-head"><h2>ProjetoHUB · Agentes e tarefas</h2><button type="button" data-close>Fechar</button></div>
     <p>O escritório mostra sessões reais do Codex. Agentes sem sessão vinculada executam tarefas textuais pelo modelo escolhido ou pelo Ollama local automático.</p>
-    <h3>Criar agente</h3><form id="hub-agent-form"><label>Nome<input name="name" maxlength="100" required></label><label>Objetivo<input name="objective" maxlength="2000" required></label><label>Sessão Codex existente (opcional)<select name="session"><option value="">Sem vínculo</option></select></label><label>Modelo para agente sem Codex<select name="modelId"><option value="">Ollama local automático</option></select></label><label>Reserva 1<select name="backup1"><option value="">Nenhuma</option></select></label><label>Reserva 2<select name="backup2"><option value="">Nenhuma</option></select></label><label>Reserva 3<select name="backup3"><option value="">Nenhuma</option></select></label><label>Subagente de (opcional)<select name="parent"><option value="">Agente principal</option></select></label><button>Criar agente</button></form><small>Reservas são tentadas na ordem escolhida após falha recuperável do modelo principal. Configure apenas provedores que autoriza a receber o conteúdo das tarefas.</small>
+    <h3>Criar agente</h3><form id="hub-agent-form"><label>Nome<input name="name" maxlength="100" required></label><label>Objetivo<input name="objective" maxlength="2000" required></label><label>Sessão Codex existente (opcional)<select name="session"><option value="">Sem vínculo</option></select></label><label>Modelo para agente sem Codex<select name="modelId"><option value="">Ollama local automático</option></select></label><label>Reserva 1<select name="backup1"><option value="">Nenhuma</option></select></label><label>Reserva 2<select name="backup2"><option value="">Nenhuma</option></select></label><label>Reserva 3<select name="backup3"><option value="">Nenhuma</option></select></label><label>Subagente de (opcional)<select name="parent"><option value="">Agente principal</option></select></label><label>Chamadas de IA por mês (opcional)<input name="monthlyAiRequestLimit" type="number" min="1" max="1000000" step="1"></label><label>Custo estimado de IA por mês em USD (opcional)<input name="monthlyAiCostLimitUsd" type="number" min="0.01" step="any"></label><button>Criar agente</button></form><small>Reservas são tentadas na ordem escolhida após falha recuperável do modelo principal. Configure apenas provedores que autoriza a receber o conteúdo das tarefas. Os limites por agente valem para chamadas pelo roteador de IA; a sessão Codex segue as cotas oficiais.</small>
     <h3>Nova tarefa</h3><form id="hub-task-form"><label>Agente<select name="agent" required></select></label><label>Instrução ou termo de busca<input name="instruction" maxlength="10000" required></label><label id="hub-task-job-label" hidden>Vaga para analisar<select name="jobId"></select></label><label>Prioridade<select name="priority"><option value="1">1 · Baixa</option><option value="2">2</option><option value="3" selected>3 · Normal</option><option value="4">4</option><option value="5">5 · Alta</option></select></label><button>Criar tarefa</button></form><p id="hub-task-hint"></p>
     <form id="hub-execution-form"><label>Execuções simultâneas<select name="maxConcurrent"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label><button>Salvar limite</button></form><p id="hub-execution-status"></p>
     <h3>Perguntas pendentes</h3><p>Para preencher um campo do rascunho com a resposta, escolha a candidatura e informe o nome do campo. A resposta não autoriza o envio; revise o rascunho e aprove novamente.</p><form id="hub-question-form"><label>Tarefa<select name="task" required></select></label><label>Pergunta<input name="text" maxlength="2000" required></label><label>Candidatura (opcional)<select name="applicationId"><option value="">Sem candidatura</option></select></label><label id="hub-question-field-label" hidden>Campo da candidatura<input name="fieldName" maxlength="100" placeholder="Ex.: Disponibilidade"></label><button>Registrar pergunta</button></form><ul id="hub-questions"></ul>
@@ -337,6 +339,8 @@ export function mountHubPanel(): void {
       const selectedModel = router.models.find((model) => model.id === agent.modelId);
       const detail = document.createElement('small'); detail.textContent = ` · ${agent.status === 'ended' ? 'encerrado' : agent.status === 'paused' ? 'pausado' : 'ativo'} · ${agent.codexThread ? 'Codex → Ollama quando indisponível' : agent.modelId ? selectedModel ? `${selectedModel.provider} / ${selectedModel.model}${selectedModel.available ? '' : ' · indisponível'}` : 'modelo removido · aguardando seleção' : 'Ollama local automático'}`; li.append(detail);
       if (agent.fallbackModelIds?.length) detail.textContent += ` · reservas: ${agent.fallbackModelIds.map((id) => { const model = router.models.find((item) => item.id === id); return model ? `${model.provider}/${model.model}` : 'modelo removido'; }).join(' → ')}`;
+      const agentUsage = router.agentUsage?.[agent.id];
+      if (agentUsage || agent.monthlyAiRequestLimit || agent.monthlyAiCostLimitUsd) detail.textContent += ` · IA roteada no mês: ${agentUsage?.requests ?? 0}${agent.monthlyAiRequestLimit ? `/${agent.monthlyAiRequestLimit}` : ''} chamada(s), USD ${(agentUsage?.estimatedCostUsd ?? 0).toFixed(4)} estimados${agent.monthlyAiCostLimitUsd ? `/${agent.monthlyAiCostLimitUsd}` : ''}${agentUsage?.unpricedRequests ? `, ${agentUsage.unpricedRequests} sem preço` : ''}`;
       if (agent.status !== 'ended') {
         const edit = document.createElement('form');
         const name = document.createElement('input'); name.value = agent.name; name.maxLength = 100; name.required = true; name.setAttribute('aria-label', 'Nome do agente');
@@ -351,6 +355,12 @@ export function mountHubPanel(): void {
         option(modelSelect, '', 'Ollama local automático');
         for (const model of router.models) option(modelSelect, model.id, `${model.provider} / ${model.model}${model.available ? '' : ' · indisponível'}`);
         modelSelect.value = agent.modelId ?? '';
+        const requestLimit = document.createElement('input'); requestLimit.type = 'number'; requestLimit.min = '1'; requestLimit.max = '1000000'; requestLimit.step = '1';
+        requestLimit.value = agent.monthlyAiRequestLimit === undefined ? '' : String(agent.monthlyAiRequestLimit);
+        const requestLabel = document.createElement('label'); requestLabel.textContent = 'Chamadas de IA por mês'; requestLabel.append(requestLimit);
+        const costLimit = document.createElement('input'); costLimit.type = 'number'; costLimit.min = '0.01'; costLimit.step = 'any';
+        costLimit.value = agent.monthlyAiCostLimitUsd === undefined ? '' : String(agent.monthlyAiCostLimitUsd);
+        const costLabel = document.createElement('label'); costLabel.textContent = 'Custo estimado de IA por mês em USD'; costLabel.append(costLimit);
         const backups = [0, 1, 2].map((index) => {
           const label = document.createElement('label'); label.textContent = `Reserva ${index + 1}`;
           const select = document.createElement('select'); select.setAttribute('aria-label', `Reserva ${index + 1} do agente`);
@@ -369,7 +379,7 @@ export function mountHubPanel(): void {
         };
         modelSelect.onchange = syncModel;
         sessionSelect.onchange = syncModel; syncModel();
-        const save = document.createElement('button'); save.textContent = 'Salvar'; edit.prepend(name, objective, sessionSelect, modelSelect); edit.append(save);
+        const save = document.createElement('button'); save.textContent = 'Salvar'; edit.prepend(name, objective, sessionSelect, modelSelect, requestLabel, costLabel); edit.append(save);
         edit.onsubmit = (event) => {
           event.preventDefault();
           const selection = sessionSelect.value;
@@ -378,7 +388,9 @@ export function mountHubPanel(): void {
             ? { codexThread: selected.thread, codexHome: selected.home, modelId: null, fallbackModelIds: [] }
             : { codexThread: null, codexHome: null, modelId: modelSelect.value || null,
               fallbackModelIds: backups.map((item) => item.value).filter(Boolean) };
-          void api(`/api/hub/agents/${agent.id}`, { name: name.value, objective: objective.value, ...link }, 'PATCH').then(refresh).catch(showError);
+          void api(`/api/hub/agents/${agent.id}`, { name: name.value, objective: objective.value, ...link,
+            monthlyAiRequestLimit: requestLimit.value === '' ? null : Number(requestLimit.value),
+            monthlyAiCostLimitUsd: costLimit.value === '' ? null : Number(costLimit.value) }, 'PATCH').then(refresh).catch(showError);
         };
         const toggle = document.createElement('button'); toggle.textContent = agent.status === 'paused' ? 'Retomar agente' : 'Pausar agente';
         toggle.onclick = () => void api(`/api/hub/agents/${agent.id}/status`, { status: agent.status === 'paused' ? 'active' : 'paused' }).then(refresh).catch(showError);
@@ -529,9 +541,11 @@ export function mountHubPanel(): void {
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
+    const limits = Object.fromEntries(['monthlyAiRequestLimit', 'monthlyAiCostLimitUsd']
+      .filter((name) => data.get(name) !== '').map((name) => [name, Number(data.get(name))]));
     void api('/api/hub/agents', { name: data.get('name'), objective: data.get('objective'), ...(selected && data.get('session') !== '' ? { codexThread: selected.thread, codexHome: selected.home } : {}),
       ...(data.get('modelId') && data.get('session') === '' ? { modelId: data.get('modelId'), fallbackModelIds: agentBackups.map((item) => item.value).filter(Boolean) } : {}),
-      ...(data.get('parent') ? { parentId: data.get('parent') } : {}) })
+      ...(data.get('parent') ? { parentId: data.get('parent') } : {}), ...limits })
       .then(() => { agentForm.reset(); syncAgentModels(); message.textContent = 'Agente criado.'; return refresh(); }).catch(showError); };
   sessions.onchange = syncAgentModels;
   agentModel.onchange = syncAgentModels;

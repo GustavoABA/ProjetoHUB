@@ -70,7 +70,8 @@ export async function runJobAction(task: HubTask, agent: HubAgent, deps: JobActi
   }
   if (agent.systemKey === 'job-search/requirements') {
     const job = await analyzeJob(deps.jobs, deps.profile, deps.router, task.instruction,
-      agent.modelId ? undefined : 'ollama', agent.modelId, true, agent.fallbackModelIds);
+      agent.modelId ? undefined : 'ollama', agent.modelId, true, agent.fallbackModelIds,
+      { agentId: agent.id, monthlyRequestLimit: agent.monthlyAiRequestLimit, monthlyCostLimitUsd: agent.monthlyAiCostLimitUsd });
     reconcileCompatibilityTasks(deps.hub, deps.jobs, deps.profile);
     return `Análise de ${job.title} em ${job.company}: ${job.requirements.length} ${job.requirements.length === 1 ? 'requisito extraído' : 'requisitos extraídos'} do anúncio. ${job.justification}`;
   }

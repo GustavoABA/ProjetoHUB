@@ -57,6 +57,62 @@ it('reserves the last monthly call before network I/O so concurrent tasks cannot
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
 
+it('applies an agent monthly request limit across its primary and backup models', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({
+    choices: [{ message: { content: 'OK' } }], usage: { prompt_tokens: 10, completion_tokens: 5 },
+  }), { status: 200 }));
+  const r = router(fetcher, { OPENAI_API_KEY: 'first', DEEPSEEK_API_KEY: 'second' });
+  const first = r.add({ provider: 'openai', model: 'first', priority: 1, inputUsdPerMillion: 2, outputUsdPerMillion: 4 });
+  const second = r.add({ provider: 'deepseek', model: 'second', priority: 2, inputUsdPerMillion: 1, outputUsdPerMillion: 2 });
+  const messages = [{ role: 'user' as const, content: 'Olá' }];
+  const policy = { agentId: '12345678-1234-4234-8234-123456789001', monthlyRequestLimit: 1 };
+  await r.complete(messages, undefined, first.id, [second.id], policy);
+  await expect(r.complete(messages, undefined, second.id, [first.id], policy)).rejects.toThrow('Limite mensal do agente');
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(r.agentUsage(policy.agentId)).toMatchObject({ requests: 1, inputTokens: 10, outputTokens: 5 });
+  expect(new ModelRouter(r.file, fetcher).agentUsage(policy.agentId).requests).toBe(1);
+  expect(await r.complete(messages, undefined, second.id, undefined, { agentId: '12345678-1234-4234-8234-123456789002', monthlyRequestLimit: 1 })).toMatchObject({ model: 'second' });
+});
+
+it('stops an agent after its estimated cost threshold, independently of the model limits', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({
+    choices: [{ message: { content: 'OK' } }], usage: { prompt_tokens: 1_000_000, completion_tokens: 0 },
+  }), { status: 200 }));
+  const r = router(fetcher, { OPENAI_API_KEY: 'secret' });
+  r.add({ provider: 'openai', model: 'priced', priority: 1, inputUsdPerMillion: 2, outputUsdPerMillion: 4 });
+  const policy = { agentId: '12345678-1234-4234-8234-123456789001', monthlyCostLimitUsd: 2 };
+  await r.complete([{ role: 'user', content: 'Oi' }], undefined, undefined, undefined, policy);
+  expect(r.agentUsage(policy.agentId)).toMatchObject({ estimatedCostUsd: 2, unpricedRequests: 0 });
+  await expect(r.complete([{ role: 'user', content: 'Oi' }], undefined, undefined, undefined, policy)).rejects.toThrow('Limite mensal do agente');
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it('keeps an agent cost cap conservative when a provider omits usage totals', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }] }), { status: 200 }));
+  const r = router(fetcher, { OPENAI_API_KEY: 'secret' });
+  r.add({ provider: 'openai', model: 'priced', priority: 1, inputUsdPerMillion: 2, outputUsdPerMillion: 4 });
+  const policy = { agentId: '12345678-1234-4234-8234-123456789001', monthlyCostLimitUsd: 2 };
+  await r.complete([{ role: 'user', content: 'Oi' }], undefined, undefined, undefined, policy);
+  expect(r.agentUsage(policy.agentId).unpricedRequests).toBe(1);
+  await expect(r.complete([{ role: 'user', content: 'Oi' }], undefined, undefined, undefined, policy)).rejects.toThrow('Limite mensal do agente');
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it('reserves the final agent allowance before another concurrent task can start', async () => {
+  let release!: (response: Response) => void;
+  const pending = new Promise<Response>((resolve) => { release = resolve; });
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => pending);
+  const r = router(fetcher, { OPENAI_API_KEY: 'secret' });
+  r.add({ provider: 'openai', model: 'shared', priority: 1 });
+  const policy = { agentId: '12345678-1234-4234-8234-123456789001', monthlyRequestLimit: 1 };
+  const first = r.complete([{ role: 'user', content: 'Primeira' }], undefined, undefined, undefined, policy);
+  await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+  await expect(r.complete([{ role: 'user', content: 'Segunda' }], undefined, undefined, undefined, policy)).rejects.toThrow('Limite mensal do agente');
+  release(new Response(JSON.stringify({ choices: [{ message: { content: 'Pronto' } }] }), { status: 200 }));
+  await first;
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
 it('blocks further paid calls at an estimated monthly cost threshold', async () => {
   const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }],
     usage: { prompt_tokens: 1_000_000, completion_tokens: 0 } }), { status: 200 }));

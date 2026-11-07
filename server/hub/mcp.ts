@@ -56,19 +56,24 @@ export function createMcpRequestHandler(deps: McpDependencies): (req: IncomingMe
     };
     tool('listar_agentes', 'Lista agentes configurados e seus estados reais.', z.object({}), () => deps.hub.listAgents());
     tool('criar_agente', 'Cria um agente ou subagente com modelo principal e reservas opcionais.', z.object({ nome: z.string(), objetivo: z.string(), agentePaiId: z.string().optional(),
-      modeloId: z.string().optional(), modelosReservaIds: z.array(z.string()).max(3).optional() }),
-      ({ nome, objetivo, agentePaiId, modeloId, modelosReservaIds }) => {
+      modeloId: z.string().optional(), modelosReservaIds: z.array(z.string()).max(3).optional(),
+      limiteMensalChamadasIA: z.number().int().min(1).max(1_000_000).optional(), limiteMensalCustoEstimadoUSD: z.number().positive().max(1_000_000).optional() }),
+      ({ nome, objetivo, agentePaiId, modeloId, modelosReservaIds, limiteMensalChamadasIA, limiteMensalCustoEstimadoUSD }) => {
         ensureModels(modeloId, modelosReservaIds);
-        return deps.hub.createAgent({ name: nome, objective: objetivo, parentId: agentePaiId, modelId: modeloId, fallbackModelIds: modelosReservaIds });
+        return deps.hub.createAgent({ name: nome, objective: objetivo, parentId: agentePaiId, modelId: modeloId, fallbackModelIds: modelosReservaIds,
+          monthlyAiRequestLimit: limiteMensalChamadasIA, monthlyAiCostLimitUsd: limiteMensalCustoEstimadoUSD });
       });
     tool('atualizar_agente', 'Altera nome, objetivo ou vínculo Codex do agente. Sessão e pasta devem ser enviadas juntas; null em ambas desvincula.',
       z.object({ id: z.string(), nome: z.string().optional(), objetivo: z.string().optional(),
         sessaoCodex: z.string().nullable().optional(), pastaCodex: z.string().nullable().optional(),
-        modeloId: z.string().nullable().optional(), modelosReservaIds: z.array(z.string()).max(3).nullable().optional() }),
-      ({ id, nome, objetivo, sessaoCodex, pastaCodex, modeloId, modelosReservaIds }) => {
+        modeloId: z.string().nullable().optional(), modelosReservaIds: z.array(z.string()).max(3).nullable().optional(),
+        limiteMensalChamadasIA: z.number().int().min(1).max(1_000_000).nullable().optional(),
+        limiteMensalCustoEstimadoUSD: z.number().positive().max(1_000_000).nullable().optional() }),
+      ({ id, nome, objetivo, sessaoCodex, pastaCodex, modeloId, modelosReservaIds, limiteMensalChamadasIA, limiteMensalCustoEstimadoUSD }) => {
         ensureModels(modeloId, modelosReservaIds);
         return deps.hub.updateAgent(id, { name: nome, objective: objetivo, codexThread: sessaoCodex, codexHome: pastaCodex,
-          modelId: modeloId, fallbackModelIds: modelosReservaIds });
+          modelId: modeloId, fallbackModelIds: modelosReservaIds, monthlyAiRequestLimit: limiteMensalChamadasIA,
+          monthlyAiCostLimitUsd: limiteMensalCustoEstimadoUSD });
       });
     tool('encerrar_agente', 'Encerra o agente e cancela tarefas ainda não entregues.', z.object({ id: z.string() }),
       ({ id }) => deps.hub.setAgentStatus(id, 'ended'));

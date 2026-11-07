@@ -24,6 +24,18 @@ it('persists agents and tasks across restart, without inventing execution', () =
   expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(1);
 });
 
+it('persists editable monthly AI limits for an agent and rejects invalid values', () => {
+  const file = fixture(); const store = new HubStore(file);
+  const agent = store.createAgent({ name: 'Triagem', objective: 'Analisar', monthlyAiRequestLimit: 12,
+    monthlyAiCostLimitUsd: 3.5 });
+  expect(new HubStore(file).agent(agent.id)).toMatchObject({ monthlyAiRequestLimit: 12, monthlyAiCostLimitUsd: 3.5 });
+  expect(store.updateAgent(agent.id, { monthlyAiRequestLimit: 6, monthlyAiCostLimitUsd: null })).toMatchObject({ monthlyAiRequestLimit: 6 });
+  expect(store.agent(agent.id)?.monthlyAiCostLimitUsd).toBeUndefined();
+  expect(() => store.updateAgent(agent.id, { monthlyAiRequestLimit: 0 })).toThrow('Limite');
+  expect(() => store.createAgent({ name: 'Inválido', objective: 'Analisar', monthlyAiCostLimitUsd: -1 })).toThrow('Limite');
+  expect(new HubStore(file).agent(agent.id)?.monthlyAiRequestLimit).toBe(6);
+});
+
 it('persists task priority and rejects values outside the supported range', () => {
   const path = fixture(); const store = new HubStore(path);
   const agent = store.createAgent({ name: 'Pesquisa', objective: 'Vagas' });

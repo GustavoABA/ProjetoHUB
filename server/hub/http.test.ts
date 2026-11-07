@@ -306,9 +306,10 @@ it('creates and lists agents and tasks over local HTTP', async () => {
     if (!address || typeof address === 'string') throw new Error('no address');
     const base = `http://127.0.0.1:${address.port}`;
     const post = (path: string, body: unknown) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const created = await post('/api/hub/agents', { name: 'Pesquisa', objective: 'Vagas reais' });
+    const created = await post('/api/hub/agents', { name: 'Pesquisa', objective: 'Vagas reais', monthlyAiRequestLimit: 10, monthlyAiCostLimitUsd: 2 });
     expect(created.status).toBe(201);
     const agent = await created.json();
+    expect(agent).toMatchObject({ monthlyAiRequestLimit: 10, monthlyAiCostLimitUsd: 2 });
     const task = await post('/api/hub/tasks', { agentId: agent.id, instruction: 'Buscar' });
     expect(task.status).toBe(201);
     expect((await task.json()).status).toBe('unassigned');
@@ -320,6 +321,10 @@ it('creates and lists agents and tasks over local HTTP', async () => {
     expect((await post('/api/hub/tasks', { agentId: 'missing', instruction: 'Buscar' })).status).toBe(400);
     const updated = await fetch(base + `/api/hub/agents/${agent.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ objective: 'Avaliar vagas' }) });
     expect((await updated.json()).objective).toBe('Avaliar vagas');
+    const limits = await fetch(base + `/api/hub/agents/${agent.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ monthlyAiRequestLimit: 5, monthlyAiCostLimitUsd: null }) });
+    expect(await limits.json()).toMatchObject({ monthlyAiRequestLimit: 5 });
+    expect(store.agent(agent.id)?.monthlyAiCostLimitUsd).toBeUndefined();
     expect((await post(`/api/hub/agents/${agent.id}/status`, { status: 'paused' })).status).toBe(200);
     expect((await post(`/api/hub/agents/${agent.id}/status`, { status: 'active' })).status).toBe(200);
     expect((await post(`/api/hub/agents/${agent.id}/status`, { status: 'ended' })).status).toBe(200);

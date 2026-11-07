@@ -424,11 +424,14 @@ const taskRuntime = new TaskRuntime(join(config.dataDir, 'projecthub', 'executio
   reconcileAnsweredApplications();
   const models = modelRouter.status().models;
   const localAvailable = models.some((model) => model.provider === 'ollama' && model.available);
-  const local = async (instruction: string, objective: string, modelId?: string, fallbackModelIds?: string[]) => {
+  const local = async (instruction: string, objective: string, modelId?: string, fallbackModelIds?: string[],
+    agent?: { id: string; monthlyAiRequestLimit?: number; monthlyAiCostLimitUsd?: number }) => {
     const response = await modelRouter.complete([
       { role: 'system', content: `Você auxilia o agente cujo objetivo é: ${objective}. Produza apenas uma resposta textual. Não alegue ter navegado, enviado mensagens, preenchido formulários ou realizado ações externas. Se a tarefa exigir uma ação externa, explique o que falta fazer.` },
       { role: 'user', content: instruction },
-    ], modelId ? undefined : 'ollama', modelId, fallbackModelIds);
+    ], modelId ? undefined : 'ollama', modelId, fallbackModelIds, agent ? {
+      agentId: agent.id, monthlyRequestLimit: agent.monthlyAiRequestLimit, monthlyCostLimitUsd: agent.monthlyAiCostLimitUsd,
+    } : undefined);
     return { text: response.text, model: response.model, provider: response.provider };
   };
   const eligible = (agent: { codexThread?: string; modelId?: string; fallbackModelIds?: string[]; systemKey?: string }) =>

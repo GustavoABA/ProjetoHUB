@@ -125,6 +125,18 @@ it('passes the agent fallback order to model execution', async () => {
   expect(selected).toEqual([{ primary, backups: [backup] }]);
 });
 
+it('passes the agent identity and limits to local model execution', async () => {
+  const { store } = fixture();
+  const agent = store.createAgent({ name: 'Triagem', objective: 'Analisar', monthlyAiRequestLimit: 2, monthlyAiCostLimitUsd: 1 });
+  store.createTask({ agentId: agent.id, instruction: 'Resuma' });
+  const received: unknown[] = [];
+  await dispatchWithLocalFallback(store, undefined, async (_instruction, _objective, _modelId, _fallbacks, selected) => {
+    received.push(selected);
+    return { text: 'Resposta', model: 'local', provider: 'ollama' };
+  });
+  expect(received).toMatchObject([{ id: agent.id, monthlyAiRequestLimit: 2, monthlyAiCostLimitUsd: 1 }]);
+});
+
 it('executes the researcher action against a source and persists only real listings', async () => {
   const { store } = fixture();
   store.ensureJobSearchTeam();
