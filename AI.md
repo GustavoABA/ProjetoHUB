@@ -214,3 +214,11 @@ Cada tarefa nova recebe prioridade inteira de 1 a 5 (padrão 3). O painel permit
 
 **Verificação:** testes cobrem persistência após reconstrução, rejeição de prioridade inválida, alteração pela API, ordem de entrega e preservação de empates. `npx vitest run server/hub` passou com 107 testes e dois optativos ignorados; checagem de tipos e build passaram. Nenhuma sessão Codex real foi acionada por esses testes.
 
+## Atualização: execução concorrente controlada
+
+`server/hub/task-runtime.ts` limita a 1–4 despachos simultâneos, com padrão 1. O limite é salvo em `execution.json`, incluído nos backups do ProjetoHUB, e pode ser editado no HUD por `/api/hub/execution`. O painel mostra quantos despachos estão ativos. Cada tarefa é marcada `dispatching` antes da espera por Codex ou modelo, para que ticks simultâneos não escolham a mesma tarefa. Reduzir o limite não cancela execuções já iniciadas; novas aguardam até haver vaga. Após reinicialização, o contador de processos ativos recomeça em zero e tarefas que estavam em `dispatching` são recuperadas como `interrupted` pelo store, exigindo revisão antes de reenvio.
+
+**Limites:** a concorrência controla despachos de tarefas genéricas, não o número de sessões Codex em execução fora do ProjetoHUB nem as rotas manuais de busca/análise/candidatura. A ordem de início respeita as prioridades, mas a ordem de término depende do tempo de cada modelo/serviço. Um envio Codex aceito continua registrado como `sent`, sem confirmação automática de conclusão. O limite máximo 4 evita abrir muitas requisições locais simultâneas; custo e tokens ainda não têm cotas por tarefa.
+
+**Verificação:** testes com promessas controladas comprovaram o teto de dois despachos simultâneos, recusa de um terceiro, liberação de vaga, persistência da configuração e seleção de tarefas distintas durante esperas de I/O. A API local aceitou o novo limite e recusou valores inválidos. `npx vitest run server/hub` passou com 110 testes e dois optativos ignorados; checagem de tipos e build passaram. Não foi feita uma carga simultânea com sessões Codex ou provedores externos reais.
+

@@ -64,6 +64,7 @@ import { dispatchWithLocalFallback } from './hub/dispatcher';
 import { JobStore, runScheduledSearch } from './hub/jobs';
 import { BrowserManager } from './hub/browser';
 import { ModelRouter } from './hub/router';
+import { TaskRuntime } from './hub/task-runtime';
 import { ApplicationStore } from './hub/applications';
 import { ProfileStore } from './hub/profile';
 import { WhatsAppStore } from './hub/whatsapp';
@@ -399,12 +400,9 @@ const discoverOllama = () => { void modelRouter.discoverLocalModel().catch((erro
   log.warn(tr('Falha ao detectar modelo Ollama local: {0}', [errMsg(error)]))); };
 discoverOllama();
 const ollamaDiscoveryTimer = setInterval(discoverOllama, 30_000);
-let hubDispatchBusy = false;
-const hubDispatcher = setInterval(() => {
+const taskRuntime = new TaskRuntime(join(config.dataDir, 'projecthub', 'execution.json'), async () => {
   const models = modelRouter.status().models;
   const localAvailable = models.some((model) => model.provider === 'ollama' && model.available);
-  if (hubDispatchBusy) return;
-  hubDispatchBusy = true;
   const local = async (instruction: string, objective: string, modelId?: string) => {
     const response = await modelRouter.complete([
       { role: 'system', content: `Você auxilia o agente cujo objetivo é: ${objective}. Produza apenas uma resposta textual. Não alegue ter navegado, enviado mensagens, preenchido formulários ou realizado ações externas. Se a tarefa exigir uma ação externa, explique o que falta fazer.` },
@@ -415,9 +413,10 @@ const hubDispatcher = setInterval(() => {
   const eligible = (agent: { codexThread?: string; modelId?: string }) => agent.codexThread
     ? Boolean(hubRunner || localAvailable)
     : agent.modelId ? models.some((model) => model.id === agent.modelId && model.available) : localAvailable;
-  void dispatchWithLocalFallback(projectHub, hubRunner, local, Date.now(), eligible)
-    .catch((error) => log.warn(tr('Falha ao enviar tarefa do ProjetoHUB: {0}', [errMsg(error)])))
-    .finally(() => { hubDispatchBusy = false; });
+  await dispatchWithLocalFallback(projectHub, hubRunner, local, Date.now(), eligible);
+});
+const hubDispatcher = setInterval(() => {
+  void taskRuntime.tick().catch((error) => log.warn(tr('Falha ao enviar tarefa do ProjetoHUB: {0}', [errMsg(error)])));
 }, 2_000);
 const searchTick = () => { void runScheduledSearch(jobStore).then((ran) => {
   if (ran && jobStore.schedule()?.lastError) log.warn(tr('Pesquisa agendada do ProjetoHUB: {0}', [jobStore.schedule()!.lastError]));
@@ -500,7 +499,7 @@ server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
-    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher, backupManager, windowsStartup, evolutionSettings, webhookListener, providerCredentials) && !api(req, res, url)) fallback(req, res, url);
+    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher, backupManager, windowsStartup, evolutionSettings, webhookListener, providerCredentials, taskRuntime) && !api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(tr('Erro ao responder {0} {1}: {2}', [req.method, url.pathname, errMsg(err)]));
     if (!res.headersSent) sendJson(res, 500, { error: tr('erro interno') });

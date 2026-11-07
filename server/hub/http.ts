@@ -17,6 +17,7 @@ import type { WindowsStartupManager } from './windows-startup';
 import type { EvolutionSettings } from './evolution-settings';
 import type { WebhookListener } from './webhook-listener';
 import type { ProviderCredentials } from './provider-credentials';
+import type { TaskRuntime } from './task-runtime';
 import { configureJobWebhook, connectJobInstance, ensureJobInstance } from './evolution-instance';
 
 function record(value: unknown): Record<string, unknown> {
@@ -32,12 +33,20 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /** Routes are mounted only on the local server, after the normal Host/Origin guard. */
-export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore, ngrok?: NgrokManager, session?: ConnectionSession, publisher?: ConnectionPublisher, backups?: BackupManager, windowsStartup?: WindowsStartupManager, evolution?: EvolutionSettings, webhookListener?: WebhookListener, providerCredentials?: ProviderCredentials): boolean {
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore, ngrok?: NgrokManager, session?: ConnectionSession, publisher?: ConnectionPublisher, backups?: BackupManager, windowsStartup?: WindowsStartupManager, evolution?: EvolutionSettings, webhookListener?: WebhookListener, providerCredentials?: ProviderCredentials, taskRuntime?: TaskRuntime): boolean {
   const path = url.pathname;
   if (!path.startsWith('/api/hub/')) return false;
   const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
   if (remote !== '::1' && !/^127\./.test(remote ?? '')) {
     sendJson(res, 403, { error: 'Acesso permitido apenas neste computador' });
+    return true;
+  }
+  if (path === '/api/hub/execution') {
+    if (!taskRuntime) sendJson(res, 503, { error: 'Gerenciador de execução indisponível' });
+    else if (req.method === 'GET') sendJson(res, 200, taskRuntime.status());
+    else if (req.method === 'PUT') void readJson(req).then((raw) => sendJson(res, 200,
+      taskRuntime.configure(record(raw).maxConcurrent as number))).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
   if (path === '/api/hub/windows/startup') {

@@ -17,9 +17,32 @@ import { WindowsStartupManager } from './windows-startup';
 import { EvolutionSettings } from './evolution-settings';
 import { WebhookListener } from './webhook-listener';
 import { ProviderCredentials } from './provider-credentials';
+import { TaskRuntime } from './task-runtime';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+
+it('configures the concurrent task limit through the local HUD API', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-execution-')); dirs.push(dir);
+  const runtime = new TaskRuntime(join(dir, 'execution.json'), async () => {});
+  const store = new HubStore(join(dir, 'state.json'));
+  const server = http.createServer((req, res) => {
+    const args: Parameters<typeof handleHubRoute> = [req, res, new URL(req.url!, 'http://localhost'), store];
+    args[20] = runtime;
+    handleHubRoute(...args);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const url = `http://127.0.0.1:${address.port}/api/hub/execution`;
+    expect((await (await fetch(url)).json()).maxConcurrent).toBe(1);
+    const changed = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"maxConcurrent":3}' });
+    expect(changed.status).toBe(200); expect((await changed.json()).maxConcurrent).toBe(3);
+    const rejected = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"maxConcurrent":9}' });
+    expect(rejected.status).toBe(400);
+    expect(new TaskRuntime(join(dir, 'execution.json'), async () => {}).status().maxConcurrent).toBe(3);
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
 
 it('assigns a configured model to an agent and rejects unknown model IDs', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'projecthub-agent-model-')); dirs.push(dir);

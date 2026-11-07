@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
 
 const STATE_FILES = ['state.json', 'jobs.json', 'router.json', 'applications.json', 'profile.json',
-  'whatsapp.json', 'webhook-listener.json', 'connection-session.json', 'navigation.jsonl'] as const;
+  'whatsapp.json', 'webhook-listener.json', 'connection-session.json', 'execution.json', 'navigation.jsonl'] as const;
 const EVIDENCE = /^application-evidence\/[a-z0-9-]{1,100}\.png$/i;
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_FILE = 20_000_000;

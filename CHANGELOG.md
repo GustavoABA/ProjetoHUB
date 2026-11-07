@@ -34,6 +34,7 @@ do meio (0.**3**.0).
 - Chaves de provedores de IA cadastráveis pelo painel no Windows, protegidas por DPAPI e sem retorno do segredo pela API.
 - Modelo específico configurável por agente sem sessão Codex, com registro do provedor usado; agentes Codex mantêm Ollama local como fallback.
 - Prioridade persistente de 1 a 5 por tarefa, editável antes do envio e respeitada pelo despachante e pelo MCP.
+- Limite de 1 a 4 despachos simultâneos configurável no HUD, persistente e incluído nos backups.
 
 ### Corrigido no ProjetoHUB
 

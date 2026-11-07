@@ -1,5 +1,6 @@
 type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; modelId?: string; status?: 'active' | 'paused' | 'ended' };
 type Task = { id: string; agentId: string; instruction: string; priority?: number; status: string; error?: string; result?: string; executionProvider?: string; executionModel?: string; localRetryCount?: number; nextAttemptAt?: string };
+type ExecutionStatus = { maxConcurrent: number; active: number };
 type Session = { name: string; sessionId: string; account: string; provider: string };
 type Source = { label: string; path: string; provider: string };
 type Job = { id: string; title: string; company: string; location: string; source: string; originalUrl: string; salary?: string; compatibility: number | null; justification: string; requirements: string[]; analysisModel?: string; analyzedAt?: string; applicationStatus: string };
@@ -47,6 +48,7 @@ export function mountHubPanel(): void {
     <p>O escritório mostra sessões reais do Codex. Agentes sem sessão vinculada executam tarefas textuais pelo modelo escolhido ou pelo Ollama local automático.</p>
     <h3>Criar agente</h3><form id="hub-agent-form"><label>Nome<input name="name" maxlength="100" required></label><label>Objetivo<input name="objective" maxlength="2000" required></label><label>Sessão Codex existente (opcional)<select name="session"><option value="">Sem vínculo</option></select></label><label>Modelo para agente sem Codex<select name="modelId"><option value="">Ollama local automático</option></select></label><label>Subagente de (opcional)<select name="parent"><option value="">Agente principal</option></select></label><button>Criar agente</button></form>
     <h3>Nova tarefa</h3><form id="hub-task-form"><label>Agente<select name="agent" required></select></label><label>Instrução<input name="instruction" maxlength="10000" required></label><label>Prioridade<select name="priority"><option value="1">1 · Baixa</option><option value="2">2</option><option value="3" selected>3 · Normal</option><option value="4">4</option><option value="5">5 · Alta</option></select></label><button>Criar tarefa</button></form>
+    <form id="hub-execution-form"><label>Execuções simultâneas<select name="maxConcurrent"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label><button>Salvar limite</button></form><p id="hub-execution-status"></p>
     <h3>Perguntas pendentes</h3><form id="hub-question-form"><label>Tarefa<select name="task" required></select></label><label>Pergunta<input name="text" maxlength="2000" required></label><label>Candidatura (opcional)<select name="applicationId"><option value="">Sem candidatura</option></select></label><button>Registrar pergunta</button></form><ul id="hub-questions"></ul>
     <h3>WhatsApp · Evolution API</h3><p>A instância lógica é procura-de-emprego. Configure os números com DDI e DDD. Nenhuma mensagem será enviada antes de acionar o envio de uma pergunta.</p>
     <form id="hub-evolution-form"><label>URL da Evolution API<input name="baseUrl" type="url" required placeholder="http://127.0.0.1:8080"></label><label>Chave da Evolution API<input name="apiKey" type="password" autocomplete="new-password" placeholder="Deixe vazio para manter a chave atual"></label><button>Salvar conexão</button></form><button type="button" data-evolution-clear>Remover chave salva neste Windows</button><p id="hub-evolution-status"></p>
@@ -79,6 +81,7 @@ export function mountHubPanel(): void {
   const message = panel.querySelector('#projecthub-message') as HTMLElement;
   const agentForm = panel.querySelector('#hub-agent-form') as HTMLFormElement;
   const taskForm = panel.querySelector('#hub-task-form') as HTMLFormElement;
+  const executionForm = panel.querySelector('#hub-execution-form') as HTMLFormElement;
   const questionForm = panel.querySelector('#hub-question-form') as HTMLFormElement;
   const whatsappForm = panel.querySelector('#hub-whatsapp-form') as HTMLFormElement;
   const evolutionForm = panel.querySelector('#hub-evolution-form') as HTMLFormElement;
@@ -107,8 +110,8 @@ export function mountHubPanel(): void {
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
 
   async function refresh(): Promise<void> {
-    const [agents, tasks, questions, whatsapp, evolution, listener, profile, jobs, applications, schedule, browser, router, credentials, mcp, adminSession, backups, windowsStartup, snapshot, health] = await Promise.all([
-      api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'),
+    const [agents, tasks, execution, questions, whatsapp, evolution, listener, profile, jobs, applications, schedule, browser, router, credentials, mcp, adminSession, backups, windowsStartup, snapshot, health] = await Promise.all([
+      api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'), api<ExecutionStatus>('/api/hub/execution'),
       api<Question[]>('/api/hub/questions'),
       api<WhatsAppStatus>('/api/hub/whatsapp'),
       api<EvolutionStatus>('/api/hub/whatsapp/settings'),
@@ -126,6 +129,8 @@ export function mountHubPanel(): void {
       api<WindowsStartupStatus>('/api/hub/windows/startup'),
       api<{ agents: Session[] }>('/api/snapshot'), api<{ sources: Source[] }>('/api/health'),
     ]);
+    if (!executionForm.contains(document.activeElement)) (executionForm.elements.namedItem('maxConcurrent') as HTMLSelectElement).value = String(execution.maxConcurrent);
+    (panel.querySelector('#hub-execution-status') as HTMLElement).textContent = `${execution.active} de ${execution.maxConcurrent} execução(ões) em andamento`;
     (panel.querySelector('#hub-windows-startup-status') as HTMLElement).textContent = windowsStartup.supported
       ? windowsStartup.enabled ? 'O escritório abrirá ao entrar no Windows.' : 'Inicialização automática desligada.'
       : 'Esta opção está disponível no Windows.';
@@ -394,7 +399,7 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
-    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || panel.querySelector('#hub-tasks')?.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || listenerForm.contains(document.activeElement) || webhookForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || credentialForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || panel.querySelector('#hub-tasks')?.contains(document.activeElement) || executionForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || listenerForm.contains(document.activeElement) || webhookForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || credentialForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
@@ -404,6 +409,9 @@ export function mountHubPanel(): void {
   taskForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(taskForm);
     void api('/api/hub/tasks', { agentId: data.get('agent'), instruction: data.get('instruction'), priority: Number(data.get('priority')) })
       .then(() => { taskForm.reset(); message.textContent = 'Tarefa registrada.'; return refresh(); }).catch(showError); };
+  executionForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(executionForm);
+    void api('/api/hub/execution', { maxConcurrent: Number(data.get('maxConcurrent')) }, 'PUT')
+      .then(() => { message.textContent = 'Limite de execução salvo.'; return refresh(); }).catch(showError); };
   questionForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(questionForm);
     void api('/api/hub/questions', { taskId: data.get('task'), text: data.get('text'), ...(data.get('applicationId') ? { applicationId: data.get('applicationId') } : {}) })
       .then(() => { questionForm.reset(); message.textContent = 'Pergunta pendente registrada.'; return refresh(); }).catch(showError); };
