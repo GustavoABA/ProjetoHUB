@@ -87,9 +87,11 @@ export class ModelRouter {
     }
     this.save(); return { ...model };
   }
-  async complete(messages: Message[], onlyProvider?: Provider): Promise<Completion> {
+  async complete(messages: Message[], onlyProvider?: Provider, onlyModelId?: string): Promise<Completion> {
     validMessages(messages);
-    const available = this.state.models.filter((m) => m.enabled && (!onlyProvider || m.provider === onlyProvider) && (this.credentials?.configured(m.provider) ?? (keys[m.provider] === null || this.env[keys[m.provider]!]))).sort((a, b) => a.priority - b.priority);
+    if (onlyModelId && !this.state.models.some((m) => m.id === onlyModelId)) throw new Error('Modelo selecionado não encontrado');
+    const available = this.state.models.filter((m) => m.enabled && (!onlyProvider || m.provider === onlyProvider) && (!onlyModelId || m.id === onlyModelId) && (this.credentials?.configured(m.provider) ?? (keys[m.provider] === null || this.env[keys[m.provider]!]))).sort((a, b) => a.priority - b.priority);
+    if (onlyModelId && !available.length) throw new Error('Modelo selecionado indisponível; verifique a credencial e o estado do modelo');
     if (!available.length) throw new Error('Nenhum modelo disponível: cadastre um modelo e configure a credencial do provedor');
     for (const model of available) {
       let key: string | undefined;

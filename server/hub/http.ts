@@ -417,10 +417,12 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     if (req.method === 'GET') sendJson(res, 200, store.listAgents());
     else if (req.method === 'POST') void readJson(req).then((raw) => {
       const body = record(raw);
+      if (body.modelId !== undefined && (!router || !router.status().models.some((model) => model.id === body.modelId))) throw new Error('Modelo selecionado não encontrado');
       const agent = store.createAgent({ name: string(body.name, 'nome'), objective: string(body.objective, 'objetivo'),
         ...(body.parentId === undefined ? {} : { parentId: string(body.parentId, 'agente principal') }),
         ...(body.codexThread === undefined ? {} : { codexThread: string(body.codexThread, 'sessão Codex') }),
-        ...(body.codexHome === undefined ? {} : { codexHome: string(body.codexHome, 'pasta Codex') }) });
+        ...(body.codexHome === undefined ? {} : { codexHome: string(body.codexHome, 'pasta Codex') }),
+        ...(body.modelId === undefined ? {} : { modelId: string(body.modelId, 'modelo') }) });
       sendJson(res, 201, agent);
     }).catch((error) => fail(res, error));
     else sendJson(res, 405, { error: 'Método não permitido' });
@@ -435,8 +437,10 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     }).catch((error) => fail(res, error));
     else if (!agentAction[2] && req.method === 'PATCH') void readJson(req).then((raw) => {
       const body = record(raw);
+      if (body.modelId !== undefined && body.modelId !== null && (!router || !router.status().models.some((model) => model.id === body.modelId))) throw new Error('Modelo selecionado não encontrado');
       sendJson(res, 200, store.updateAgent(agentAction[1], { ...(body.name !== undefined ? { name: string(body.name, 'nome') } : {}),
-        ...(body.objective !== undefined ? { objective: string(body.objective, 'objetivo') } : {}) }));
+        ...(body.objective !== undefined ? { objective: string(body.objective, 'objetivo') } : {}),
+        ...(body.modelId === undefined ? {} : { modelId: body.modelId === null ? null : string(body.modelId, 'modelo') }) }));
     }).catch((error) => fail(res, error));
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;

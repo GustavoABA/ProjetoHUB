@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { Provider } from './router';
 
 export type TaskStatus = 'unassigned' | 'queued' | 'dispatching' | 'sent' | 'waiting_input' | 'paused' | 'done' | 'result_ready' | 'failed' | 'interrupted' | 'cancelled';
 export interface HubAgent {
@@ -10,6 +11,7 @@ export interface HubAgent {
   parentId?: string;
   codexThread?: string;
   codexHome?: string;
+  modelId?: string;
   createdAt: string;
   status?: 'active' | 'paused' | 'ended';
   systemKey?: string;
@@ -23,7 +25,7 @@ export interface HubTask {
   updatedAt: string;
   error?: string;
   result?: string;
-  executionProvider?: 'ollama';
+  executionProvider?: Provider;
   executionModel?: string;
   localRetryCount?: number;
   nextAttemptAt?: string;
@@ -100,15 +102,18 @@ export class HubStore {
     if (changed) this.save();
   }
 
-  createAgent(input: { name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string }): HubAgent {
+  createAgent(input: { name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string; modelId?: string }): HubAgent {
     const name = required(input.name, 'nome', 100);
     const objective = required(input.objective, 'objetivo', 2000);
     if (input.parentId && (!this.agent(input.parentId) || this.agent(input.parentId)?.status === 'ended')) throw new Error('Agente principal não encontrado ou encerrado');
     if (!!input.codexThread !== !!input.codexHome) throw new Error('Sessão e pasta Codex devem ser informadas juntas');
     if (input.codexThread && !THREAD_ID.test(input.codexThread)) throw new Error('ID da sessão Codex inválido');
+    if (input.modelId !== undefined && !THREAD_ID.test(input.modelId)) throw new Error('ID do modelo inválido');
+    if (input.modelId && input.codexThread) throw new Error('Agente com sessão Codex usa Ollama como fallback; escolha um modelo apenas para agente sem Codex');
     const agent: HubAgent = { id: randomUUID(), name, objective, createdAt: new Date().toISOString(),
       ...(input.parentId ? { parentId: input.parentId } : {}),
-      ...(input.codexThread ? { codexThread: input.codexThread, codexHome: input.codexHome } : {}) };
+      ...(input.codexThread ? { codexThread: input.codexThread, codexHome: input.codexHome } : {}),
+      ...(input.modelId ? { modelId: input.modelId } : {}) };
     this.state.agents.push(agent);
     this.save();
     return structuredClone(agent);
@@ -167,12 +172,13 @@ export class HubStore {
     return structuredClone(task);
   }
 
-  recordLocalResult(id: string, text: string, model: string): HubTask {
+  recordLocalResult(id: string, text: string, model: string, provider: Provider = 'ollama'): HubTask {
     const task = this.state.tasks.find((v) => v.id === id);
     if (!task || task.status !== 'dispatching') throw new Error('Tarefa não está em execução local');
     if (!text.trim() || text.length > 50_000 || !model.trim() || model.length > 150) throw new Error('Resultado local inválido');
+    if (!['openai', 'anthropic', 'gemini', 'deepseek', 'openrouter', 'ollama'].includes(provider)) throw new Error('Provedor de resultado inválido');
     task.result = text;
-    task.executionProvider = 'ollama';
+    task.executionProvider = provider;
     task.executionModel = model;
     task.status = 'result_ready';
     task.updatedAt = new Date().toISOString();
@@ -181,12 +187,22 @@ export class HubStore {
     return structuredClone(task);
   }
 
-  updateAgent(id: string, changes: { name?: string; objective?: string }): HubAgent {
+  updateAgent(id: string, changes: { name?: string; objective?: string; modelId?: string | null }): HubAgent {
     const agent = this.state.agents.find((a) => a.id === id);
     if (!agent) throw new Error('Agente não encontrado');
     if (agent.status === 'ended') throw new Error('Agente encerrado não pode ser editado');
-    if (changes.name !== undefined) agent.name = required(changes.name, 'nome', 100);
-    if (changes.objective !== undefined) agent.objective = required(changes.objective, 'objetivo', 2000);
+    const name = changes.name === undefined ? undefined : required(changes.name, 'nome', 100);
+    const objective = changes.objective === undefined ? undefined : required(changes.objective, 'objetivo', 2000);
+    if (changes.modelId !== undefined && changes.modelId !== null) {
+      if (!THREAD_ID.test(changes.modelId)) throw new Error('ID do modelo inválido');
+      if (agent.codexThread) throw new Error('Agente com sessão Codex usa Ollama como fallback');
+    }
+    if (name !== undefined) agent.name = name;
+    if (objective !== undefined) agent.objective = objective;
+    if (changes.modelId !== undefined) {
+      if (changes.modelId === null) delete agent.modelId;
+      else agent.modelId = changes.modelId;
+    }
     this.save(); return structuredClone(agent);
   }
 

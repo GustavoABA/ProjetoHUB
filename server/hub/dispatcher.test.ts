@@ -47,6 +47,20 @@ it('uses Ollama when Codex is offline and persists a reviewable text result', as
   });
 });
 
+it('passes an agent model selection to execution and records the provider that actually answered', async () => {
+  const { store } = fixture();
+  const modelId = '12345678-1234-1234-1234-123456789013';
+  const agent = store.createAgent({ name: 'Analista', objective: 'Analisar vaga', modelId });
+  const task = store.createTask({ agentId: agent.id, instruction: 'Resuma' });
+  const selected: string[] = [];
+  await dispatchWithLocalFallback(store, undefined, async (_instruction, _objective, requestedModelId) => {
+    selected.push(requestedModelId ?? '');
+    return { text: 'Resposta externa para revisão', model: 'chosen-model', provider: 'deepseek' };
+  });
+  expect(selected).toEqual([modelId]);
+  expect(store.listTasks().find((item) => item.id === task.id)).toMatchObject({ status: 'result_ready', executionProvider: 'deepseek', executionModel: 'chosen-model' });
+});
+
 it('falls back only for a recognized Codex availability error', async () => {
   const { store, agent } = fixture();
   const task = store.createTask({ agentId: agent.id, instruction: 'Analise' });
@@ -99,6 +113,20 @@ it('backs off after a temporary Ollama outage and keeps other tasks moving', asy
   expect(store.listTasks().find((item) => item.id === second.id)?.status).toBe('result_ready');
   await dispatchWithLocalFallback(store, undefined, async () => ({ text: 'Recuperado', model: 'local' }), now + 16_000);
   expect(store.listTasks().find((item) => item.id === first.id)).toMatchObject({ status: 'result_ready', result: 'Recuperado' });
+});
+
+it('keeps a task for an unavailable selected model queued while another agent runs', async () => {
+  const { store } = fixture();
+  const unavailable = store.createAgent({ name: 'Modelo externo', objective: 'Pesquisa', modelId: '00000000-0000-4000-8000-000000000001' });
+  const available = store.createAgent({ name: 'Local', objective: 'Pesquisa' });
+  const waiting = store.createTask({ agentId: unavailable.id, instruction: 'Primeira' });
+  const running = store.createTask({ agentId: available.id, instruction: 'Segunda' });
+  let calls = 0;
+  await dispatchWithLocalFallback(store, undefined, async () => { calls++; return { text: 'OK', model: 'local' }; }, Date.now(),
+    (agent) => agent.id === available.id);
+  expect(calls).toBe(1);
+  expect(store.listTasks().find((task) => task.id === waiting.id)?.status).toBe('unassigned');
+  expect(store.listTasks().find((task) => task.id === running.id)?.status).toBe('result_ready');
 });
 
 it('does not retry a nonavailability Ollama error automatically', async () => {

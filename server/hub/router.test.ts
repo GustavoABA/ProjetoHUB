@@ -42,6 +42,17 @@ it('routes local fallback only to Ollama', async () => {
   expect(fetcher.mock.calls[0][0]).toBe('http://127.0.0.1:11434/v1/chat/completions');
 });
 
+it('uses only the exact model chosen for an agent regardless of global priority', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: 'Escolhido' } }] }), { status: 200 }));
+  const r = router(fetcher, { OPENAI_API_KEY: 'first', DEEPSEEK_API_KEY: 'second' });
+  r.add({ provider: 'openai', model: 'first-model', priority: 1 });
+  const chosen = r.add({ provider: 'deepseek', model: 'chosen-model', priority: 10 });
+  expect(await r.complete([{ role: 'user', content: 'Analise' }], undefined, chosen.id)).toMatchObject({ provider: 'deepseek', model: 'chosen-model' });
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body)).model).toBe('chosen-model');
+  await expect(r.complete([{ role: 'user', content: 'Analise' }], undefined, 'missing')).rejects.toThrow('Modelo selecionado');
+});
+
 it('discovers an installed Ollama model once and keeps a configured choice', async () => {
   const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ models: [
     { name: 'large:latest', size: 8_000_000_000 }, { name: 'small:latest', size: 1_000_000_000 },

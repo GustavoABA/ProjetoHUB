@@ -1,11 +1,12 @@
 import type { CodexQueueRunner } from '../messages/codex';
-import type { HubStore, HubTask } from './store';
+import type { HubStore, HubTask, HubAgent } from './store';
+import type { Provider } from './router';
 
 /** One delivery attempt. `sent` means Codex accepted the queue request, not that work finished. */
 function due(task: HubTask, now: number): boolean { return !task.nextAttemptAt || Date.parse(task.nextAttemptAt) <= now; }
 function transientLocal(error: unknown): boolean {
   const message = error instanceof Error ? error.message : '';
-  return /offline|unavailable|indisponível|timeout|timed out|connection|ECONNREFUSED|fetch failed|Todos os modelos disponíveis falharam|Nenhum modelo disponível/i.test(message);
+  return /offline|unavailable|indisponível|timeout|timed out|connection|ECONNREFUSED|fetch failed|Todos os modelos disponíveis falharam/i.test(message);
 }
 function codexUnavailable(error: string): boolean {
   // Queue timeouts are ambiguous: Codex may have accepted the instruction already.
@@ -29,9 +30,11 @@ export async function dispatchNext(store: HubStore, runner: CodexQueueRunner, no
 
 /** Local text fallback is separate from Codex delivery and never reports external actions as complete. */
 export async function dispatchWithLocalFallback(store: HubStore, runner: CodexQueueRunner | undefined,
-  local: (instruction: string, objective: string) => Promise<{ text: string; model: string }>, now = Date.now()): Promise<HubTask | undefined> {
+  local: (instruction: string, objective: string, modelId?: string) => Promise<{ text: string; model: string; provider?: Provider }>,
+  now = Date.now(), eligible: (agent: HubAgent) => boolean = () => true): Promise<HubTask | undefined> {
   const task = store.listTasks().find((t) => (t.status === 'queued' || t.status === 'unassigned') &&
-    due(t, now) && !['paused', 'ended'].includes(store.agent(t.agentId)?.status ?? 'active'));
+    due(t, now) && !['paused', 'ended'].includes(store.agent(t.agentId)?.status ?? 'active') &&
+    Boolean(store.agent(t.agentId) && eligible(store.agent(t.agentId)!)));
   if (!task) return undefined;
   const agent = store.agent(task.agentId);
   if (!agent) return store.setTaskStatus(task.id, 'failed', 'Agente não encontrado');
@@ -48,10 +51,10 @@ export async function dispatchWithLocalFallback(store: HubStore, runner: CodexQu
     }
   } else store.setTaskStatus(task.id, 'dispatching');
   try {
-    const answer = await local(task.instruction, agent.objective);
-    return store.recordLocalResult(task.id, answer.text, answer.model);
+    const answer = await local(task.instruction, agent.objective, agent.codexThread ? undefined : agent.modelId);
+    return store.recordLocalResult(task.id, answer.text, answer.model, answer.provider ?? 'ollama');
   } catch (error) {
     if (transientLocal(error)) return store.scheduleLocalRetry(task.id, error instanceof Error ? error.message : 'falha de comunicação', now);
-    return store.setTaskStatus(task.id, 'failed', `Ollama: ${error instanceof Error ? error.message : 'falha de execução local'}`);
+    return store.setTaskStatus(task.id, 'failed', `Modelo: ${error instanceof Error ? error.message : 'falha de execução'}`);
   }
 }

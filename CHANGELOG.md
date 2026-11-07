@@ -32,6 +32,7 @@ do meio (0.**3**.0).
 - Configuração do webhook da instância de emprego pelo painel, com token de recebimento gerado internamente.
 - Porta de recebimento do WhatsApp configurável no painel, com estado real, recuperação após conflito e ajuste de acesso à rede local.
 - Chaves de provedores de IA cadastráveis pelo painel no Windows, protegidas por DPAPI e sem retorno do segredo pela API.
+- Modelo específico configurável por agente sem sessão Codex, com registro do provedor usado; agentes Codex mantêm Ollama local como fallback.
 
 ### Corrigido no ProjetoHUB
 

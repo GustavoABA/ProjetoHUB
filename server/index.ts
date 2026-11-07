@@ -60,7 +60,7 @@ import { BuildingUplink } from './world/uplink';
 import { WorldViewer } from './world/viewer';
 import { HubStore } from './hub/store';
 import { handleHubRoute } from './hub/http';
-import { dispatchNext, dispatchWithLocalFallback } from './hub/dispatcher';
+import { dispatchWithLocalFallback } from './hub/dispatcher';
 import { JobStore, runScheduledSearch } from './hub/jobs';
 import { BrowserManager } from './hub/browser';
 import { ModelRouter } from './hub/router';
@@ -401,17 +401,21 @@ discoverOllama();
 const ollamaDiscoveryTimer = setInterval(discoverOllama, 30_000);
 let hubDispatchBusy = false;
 const hubDispatcher = setInterval(() => {
-  const localAvailable = modelRouter.status().models.some((model) => model.provider === 'ollama' && model.enabled);
-  if (hubDispatchBusy || (!localAvailable && !hubRunner)) return;
+  const models = modelRouter.status().models;
+  const localAvailable = models.some((model) => model.provider === 'ollama' && model.available);
+  if (hubDispatchBusy) return;
   hubDispatchBusy = true;
-  const local = async (instruction: string, objective: string) => {
+  const local = async (instruction: string, objective: string, modelId?: string) => {
     const response = await modelRouter.complete([
       { role: 'system', content: `Você auxilia o agente cujo objetivo é: ${objective}. Produza apenas uma resposta textual. Não alegue ter navegado, enviado mensagens, preenchido formulários ou realizado ações externas. Se a tarefa exigir uma ação externa, explique o que falta fazer.` },
       { role: 'user', content: instruction },
-    ], 'ollama');
-    return { text: response.text, model: response.model };
+    ], modelId ? undefined : 'ollama', modelId);
+    return { text: response.text, model: response.model, provider: response.provider };
   };
-  void (localAvailable ? dispatchWithLocalFallback(projectHub, hubRunner, local) : dispatchNext(projectHub, hubRunner!))
+  const eligible = (agent: { codexThread?: string; modelId?: string }) => agent.codexThread
+    ? Boolean(hubRunner || localAvailable)
+    : agent.modelId ? models.some((model) => model.id === agent.modelId && model.available) : localAvailable;
+  void dispatchWithLocalFallback(projectHub, hubRunner, local, Date.now(), eligible)
     .catch((error) => log.warn(tr('Falha ao enviar tarefa do ProjetoHUB: {0}', [errMsg(error)])))
     .finally(() => { hubDispatchBusy = false; });
 }, 2_000);

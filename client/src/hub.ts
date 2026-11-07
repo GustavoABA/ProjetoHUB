@@ -1,4 +1,4 @@
-type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; status?: 'active' | 'paused' | 'ended' };
+type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; modelId?: string; status?: 'active' | 'paused' | 'ended' };
 type Task = { id: string; agentId: string; instruction: string; status: string; error?: string; result?: string; executionProvider?: string; executionModel?: string; localRetryCount?: number; nextAttemptAt?: string };
 type Session = { name: string; sessionId: string; account: string; provider: string };
 type Source = { label: string; path: string; provider: string };
@@ -45,7 +45,7 @@ export function mountHubPanel(): void {
   const panel = document.createElement('section'); panel.id = 'projecthub-panel'; panel.hidden = true;
   panel.innerHTML = `<div class="hub-head"><h2>ProjetoHUB · Agentes e tarefas</h2><button type="button" data-close>Fechar</button></div>
     <p>Agentes configurados aparecem aqui. O escritório mostra sessões reais do Codex; tarefas sem sessão vinculada aguardam configuração.</p>
-    <h3>Criar agente</h3><form id="hub-agent-form"><label>Nome<input name="name" maxlength="100" required></label><label>Objetivo<input name="objective" maxlength="2000" required></label><label>Sessão Codex existente (opcional)<select name="session"><option value="">Sem vínculo</option></select></label><label>Subagente de (opcional)<select name="parent"><option value="">Agente principal</option></select></label><button>Criar agente</button></form>
+    <h3>Criar agente</h3><form id="hub-agent-form"><label>Nome<input name="name" maxlength="100" required></label><label>Objetivo<input name="objective" maxlength="2000" required></label><label>Sessão Codex existente (opcional)<select name="session"><option value="">Sem vínculo</option></select></label><label>Modelo para agente sem Codex<select name="modelId"><option value="">Ollama local automático</option></select></label><label>Subagente de (opcional)<select name="parent"><option value="">Agente principal</option></select></label><button>Criar agente</button></form>
     <h3>Nova tarefa</h3><form id="hub-task-form"><label>Agente<select name="agent" required></select></label><label>Instrução<input name="instruction" maxlength="10000" required></label><button>Criar tarefa</button></form>
     <h3>Perguntas pendentes</h3><form id="hub-question-form"><label>Tarefa<select name="task" required></select></label><label>Pergunta<input name="text" maxlength="2000" required></label><label>Candidatura (opcional)<select name="applicationId"><option value="">Sem candidatura</option></select></label><button>Registrar pergunta</button></form><ul id="hub-questions"></ul>
     <h3>WhatsApp · Evolution API</h3><p>A instância lógica é procura-de-emprego. Configure os números com DDI e DDD. Nenhuma mensagem será enviada antes de acionar o envio de uma pergunta.</p>
@@ -93,6 +93,7 @@ export function mountHubPanel(): void {
   const credentialForm = panel.querySelector('#hub-credential-form') as HTMLFormElement;
   const modelTest = panel.querySelector('#hub-model-test') as HTMLFormElement;
   const sessions = agentForm.elements.namedItem('session') as HTMLSelectElement;
+  const agentModel = agentForm.elements.namedItem('modelId') as HTMLSelectElement;
   const parents = agentForm.elements.namedItem('parent') as HTMLSelectElement;
   const agentsSelect = taskForm.elements.namedItem('agent') as HTMLSelectElement;
   const questionTasks = questionForm.elements.namedItem('task') as HTMLSelectElement;
@@ -220,7 +221,10 @@ export function mountHubPanel(): void {
     (panel.querySelector('#hub-schedule-status') as HTMLElement).textContent = schedule.enabled
       ? `Próxima consulta: ${schedule.nextRunAt ? new Date(schedule.nextRunAt).toLocaleString('pt-BR') : 'pendente'}${schedule.lastError ? ` · Último erro: ${schedule.lastError}` : ''}`
       : 'Pesquisa automática desligada.';
-    sessions.length = 1; parents.length = 1; agentsSelect.length = 0; questionTasks.length = 0; questionApplications.length = 1; choices = [];
+    const selectedAgentModel = agentModel.value;
+    const selectedSession = sessions.value;
+    sessions.length = 1; agentModel.length = 1; parents.length = 1; agentsSelect.length = 0; questionTasks.length = 0; questionApplications.length = 1; choices = [];
+    for (const model of router.models) option(agentModel, model.id, `${model.provider} / ${model.model}${model.available ? '' : ' · indisponível'}`);
     for (const app of applications) option(questionApplications, app.id, `${app.title} — ${app.company}`);
     for (const session of snapshot.agents.filter((a) => a.provider === 'codex')) {
       const home = health.sources.find((s) => s.provider === 'codex' && s.label === session.account)?.path;
@@ -228,17 +232,25 @@ export function mountHubPanel(): void {
       const index = choices.push({ thread: session.sessionId, home }) - 1;
       option(sessions, String(index), `${session.name} · ${session.sessionId.slice(0, 8)}`);
     }
+    sessions.value = selectedSession;
+    agentModel.value = selectedAgentModel;
+    agentModel.disabled = Boolean(sessions.value);
     const agentList = panel.querySelector('#hub-agents')!; agentList.replaceChildren();
     for (const agent of agents) {
       if (agent.status !== 'ended') { option(parents, agent.id, agent.name); option(agentsSelect, agent.id, agent.name); }
       const li = document.createElement('li'); li.textContent = `${agent.name} — ${agent.objective}`;
-      const detail = document.createElement('small'); detail.textContent = ` · ${agent.status === 'ended' ? 'encerrado' : agent.status === 'paused' ? 'pausado' : 'ativo'} · ${agent.codexThread ? 'sessão Codex vinculada' : 'sem sessão vinculada'}`; li.append(detail);
+      const selectedModel = router.models.find((model) => model.id === agent.modelId);
+      const detail = document.createElement('small'); detail.textContent = ` · ${agent.status === 'ended' ? 'encerrado' : agent.status === 'paused' ? 'pausado' : 'ativo'} · ${agent.codexThread ? 'Codex → Ollama quando indisponível' : agent.modelId ? selectedModel ? `${selectedModel.provider} / ${selectedModel.model}${selectedModel.available ? '' : ' · indisponível'}` : 'modelo removido · aguardando seleção' : 'Ollama local automático'}`; li.append(detail);
       if (agent.status !== 'ended') {
         const edit = document.createElement('form');
         const name = document.createElement('input'); name.value = agent.name; name.maxLength = 100; name.required = true; name.setAttribute('aria-label', 'Nome do agente');
         const objective = document.createElement('input'); objective.value = agent.objective; objective.maxLength = 2000; objective.required = true; objective.setAttribute('aria-label', 'Objetivo do agente');
-        const save = document.createElement('button'); save.textContent = 'Salvar'; edit.append(name, objective, save);
-        edit.onsubmit = (event) => { event.preventDefault(); void api(`/api/hub/agents/${agent.id}`, { name: name.value, objective: objective.value }, 'PATCH').then(refresh).catch(showError); };
+        const modelSelect = document.createElement('select'); modelSelect.setAttribute('aria-label', 'Modelo do agente'); modelSelect.disabled = Boolean(agent.codexThread);
+        option(modelSelect, '', 'Ollama local automático');
+        for (const model of router.models) option(modelSelect, model.id, `${model.provider} / ${model.model}${model.available ? '' : ' · indisponível'}`);
+        modelSelect.value = agent.modelId ?? '';
+        const save = document.createElement('button'); save.textContent = 'Salvar'; edit.append(name, objective, modelSelect, save);
+        edit.onsubmit = (event) => { event.preventDefault(); void api(`/api/hub/agents/${agent.id}`, { name: name.value, objective: objective.value, ...(agent.codexThread ? {} : { modelId: modelSelect.value || null }) }, 'PATCH').then(refresh).catch(showError); };
         const toggle = document.createElement('button'); toggle.textContent = agent.status === 'paused' ? 'Retomar agente' : 'Pausar agente';
         toggle.onclick = () => void api(`/api/hub/agents/${agent.id}/status`, { status: agent.status === 'paused' ? 'active' : 'paused' }).then(refresh).catch(showError);
         const end = document.createElement('button'); end.textContent = 'Encerrar agente';
@@ -382,8 +394,9 @@ export function mountHubPanel(): void {
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
-    void api('/api/hub/agents', { name: data.get('name'), objective: data.get('objective'), ...(selected && data.get('session') !== '' ? { codexThread: selected.thread, codexHome: selected.home } : {}), ...(data.get('parent') ? { parentId: data.get('parent') } : {}) })
+    void api('/api/hub/agents', { name: data.get('name'), objective: data.get('objective'), ...(selected && data.get('session') !== '' ? { codexThread: selected.thread, codexHome: selected.home } : {}), ...(data.get('modelId') && data.get('session') === '' ? { modelId: data.get('modelId') } : {}), ...(data.get('parent') ? { parentId: data.get('parent') } : {}) })
       .then(() => { agentForm.reset(); message.textContent = 'Agente criado.'; return refresh(); }).catch(showError); };
+  sessions.onchange = () => { agentModel.disabled = Boolean(sessions.value); if (agentModel.disabled) agentModel.value = ''; };
   taskForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(taskForm);
     void api('/api/hub/tasks', { agentId: data.get('agent'), instruction: data.get('instruction') })
       .then(() => { taskForm.reset(); message.textContent = 'Tarefa registrada.'; return refresh(); }).catch(showError); };

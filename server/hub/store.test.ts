@@ -24,6 +24,18 @@ it('persists agents and tasks across restart, without inventing execution', () =
   expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(1);
 });
 
+it('persists a selected model for an agent without a Codex session and allows clearing it', () => {
+  const file = fixture();
+  const store = new HubStore(file);
+  const modelId = '12345678-1234-1234-1234-123456789012';
+  const agent = store.createAgent({ name: 'Analista', objective: 'Ler vagas', modelId });
+  expect(new HubStore(file).agent(agent.id)?.modelId).toBe(modelId);
+  expect(store.updateAgent(agent.id, { modelId: null }).modelId).toBeUndefined();
+  expect(() => store.createAgent({ name: 'Inválido', objective: 'Teste', modelId: 'desconhecido' })).toThrow();
+  expect(() => store.createAgent({ name: 'Inválido', objective: 'Teste', modelId,
+    codexThread: '12345678-1234-1234-1234-123456789012', codexHome: 'C:/codex' })).toThrow('Codex');
+});
+
 it('does not resend a task whose dispatch may have happened before a crash', () => {
   const file = fixture();
   const store = new HubStore(file);
