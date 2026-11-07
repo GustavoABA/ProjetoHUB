@@ -20,6 +20,7 @@ export interface HubTask {
   id: string;
   agentId: string;
   instruction: string;
+  priority?: number;
   status: TaskStatus;
   createdAt: string;
   updatedAt: string;
@@ -119,17 +120,29 @@ export class HubStore {
     return structuredClone(agent);
   }
 
-  createTask(input: { agentId: string; instruction: string }): HubTask {
+  createTask(input: { agentId: string; instruction: string; priority?: number }): HubTask {
     const agent = this.agent(input.agentId);
     if (!agent) throw new Error('Agente não encontrado');
     if (agent.status === 'ended') throw new Error('Agente encerrado não aceita novas tarefas');
     const instruction = required(input.instruction, 'instrução', 10000);
+    const priority = input.priority ?? 3;
+    if (!Number.isSafeInteger(priority) || priority < 1 || priority > 5) throw new Error('Prioridade deve ser um número inteiro de 1 a 5');
     const now = new Date().toISOString();
-    const task: HubTask = { id: randomUUID(), agentId: agent.id, instruction,
+    const task: HubTask = { id: randomUUID(), agentId: agent.id, instruction, priority,
       status: agent.codexThread ? 'queued' : 'unassigned', createdAt: now, updatedAt: now };
     this.state.tasks.push(task);
     this.save();
     return structuredClone(task);
+  }
+
+  setTaskPriority(id: string, priority: number): HubTask {
+    const task = this.state.tasks.find((item) => item.id === id);
+    if (!task) throw new Error('Tarefa não encontrada');
+    if (!['queued', 'unassigned', 'paused'].includes(task.status)) throw new Error('Prioridade só pode ser alterada antes do envio');
+    if (!Number.isSafeInteger(priority) || priority < 1 || priority > 5) throw new Error('Prioridade deve ser um número inteiro de 1 a 5');
+    task.priority = priority;
+    task.updatedAt = new Date().toISOString();
+    this.save(); return structuredClone(task);
   }
 
   setTaskStatus(id: string, status: TaskStatus, error?: string): HubTask {

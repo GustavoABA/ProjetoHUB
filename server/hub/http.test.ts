@@ -43,6 +43,27 @@ it('assigns a configured model to an agent and rejects unknown model IDs', async
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 
+it('creates and changes priority through the local task API before dispatch', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-priority-')); dirs.push(dir);
+  const store = new HubStore(join(dir, 'state.json'));
+  const agent = store.createAgent({ name: 'Pesquisa', objective: 'Vagas' });
+  const server = http.createServer((req, res) => handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), store));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const base = `http://127.0.0.1:${address.port}/api/hub/tasks`;
+    const created = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: agent.id, instruction: 'Pesquisar', priority: 5 }) });
+    expect(created.status).toBe(201);
+    const task = await created.json(); expect(task.priority).toBe(5);
+    const changed = await fetch(`${base}/${task.id}/priority`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{"priority":2}' });
+    expect(changed.status).toBe(200); expect((await changed.json()).priority).toBe(2);
+    const rejected = await fetch(`${base}/${task.id}/priority`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{"priority":8}' });
+    expect(rejected.status).toBe(400);
+    expect(new HubStore(join(dir, 'state.json')).listTasks().find((item) => item.id === task.id)?.priority).toBe(2);
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
 it('creates and schedules a verified backup through the local panel API', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
   const store = new HubStore(join(dir, 'state.json'));

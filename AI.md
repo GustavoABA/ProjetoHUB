@@ -208,3 +208,9 @@ O formulário de criação e edição permite escolher um modelo cadastrado para
 
 **Teste com Ollama real nesta máquina:** `PROJECTHUB_OLLAMA_E2E=1 npx vitest run server/hub/codex-ollama.integration.test.ts` passou. O teste descobriu o modelo instalado `qwen2.5:1.5b`, simulou apenas a resposta inequívoca `Codex offline` da fila e recebeu uma resposta textual do Ollama real. A tarefa terminou como `result_ready`, com `executionProvider=ollama`, e a resposta persistiu após reconstruir o store. O teste não desligou uma sessão Codex real e não comprova ferramentas ou candidatura pelo Ollama. Sem a variável, esse teste é ignorado para não depender do serviço local em todas as máquinas.
 
+## Atualização: prioridades das tarefas
+
+Cada tarefa nova recebe prioridade inteira de 1 a 5 (padrão 3). O painel permite escolher na criação e alterar enquanto a tarefa ainda não foi enviada; a API local e o MCP aceitam prioridade. O despachante prioriza valores maiores e preserva a ordem de criação entre tarefas de mesma prioridade. Estados em execução ou já entregues não podem ser reordenados, evitando que a alteração seja confundida com cancelamento ou reenvio. Tarefas antigas sem o campo persistido são tratadas como prioridade 3. A execução ainda usa um único envio por vez; concorrência configurável permanece pendente.
+
+**Verificação:** testes cobrem persistência após reconstrução, rejeição de prioridade inválida, alteração pela API, ordem de entrega e preservação de empates. `npx vitest run server/hub` passou com 107 testes e dois optativos ignorados; checagem de tipos e build passaram. Nenhuma sessão Codex real foi acionada por esses testes.
+

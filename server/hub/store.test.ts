@@ -24,6 +24,21 @@ it('persists agents and tasks across restart, without inventing execution', () =
   expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(1);
 });
 
+it('persists task priority and rejects values outside the supported range', () => {
+  const path = fixture(); const store = new HubStore(path);
+  const agent = store.createAgent({ name: 'Pesquisa', objective: 'Vagas' });
+  const urgent = store.createTask({ agentId: agent.id, instruction: 'Urgente', priority: 5 });
+  expect(new HubStore(path).listTasks().find((task) => task.id === urgent.id)?.priority).toBe(5);
+  expect(() => store.createTask({ agentId: agent.id, instruction: 'Inválida', priority: 0 })).toThrow('Prioridade');
+  expect(() => store.createTask({ agentId: agent.id, instruction: 'Inválida', priority: 1.5 })).toThrow('Prioridade');
+  expect(store.createTask({ agentId: agent.id, instruction: 'Padrão' }).priority).toBe(3);
+  expect(store.setTaskPriority(urgent.id, 2).priority).toBe(2);
+  expect(new HubStore(path).listTasks().find((task) => task.id === urgent.id)?.priority).toBe(2);
+  expect(() => store.setTaskPriority(urgent.id, 6)).toThrow('Prioridade');
+  store.setTaskStatus(urgent.id, 'dispatching');
+  expect(() => store.setTaskPriority(urgent.id, 5)).toThrow('Prioridade');
+});
+
 it('persists a selected model for an agent without a Codex session and allows clearing it', () => {
   const file = fixture();
   const store = new HubStore(file);

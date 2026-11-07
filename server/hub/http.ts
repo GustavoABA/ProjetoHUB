@@ -449,8 +449,16 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     if (req.method === 'GET') sendJson(res, 200, store.listTasks());
     else if (req.method === 'POST') void readJson(req).then((raw) => {
       const body = record(raw);
-      sendJson(res, 201, store.createTask({ agentId: string(body.agentId, 'agente'), instruction: string(body.instruction, 'instrução') }));
+      sendJson(res, 201, store.createTask({ agentId: string(body.agentId, 'agente'), instruction: string(body.instruction, 'instrução'),
+        ...(body.priority === undefined ? {} : { priority: body.priority as number }) }));
     }).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  const taskPriorityAction = /^\/api\/hub\/tasks\/([0-9a-f-]+)\/priority$/.exec(path);
+  if (taskPriorityAction) {
+    if (req.method === 'PATCH') void readJson(req).then((raw) => sendJson(res, 200,
+      store.setTaskPriority(taskPriorityAction[1], record(raw).priority as number))).catch((error) => fail(res, error));
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }

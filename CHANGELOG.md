@@ -33,6 +33,7 @@ do meio (0.**3**.0).
 - Porta de recebimento do WhatsApp configurável no painel, com estado real, recuperação após conflito e ajuste de acesso à rede local.
 - Chaves de provedores de IA cadastráveis pelo painel no Windows, protegidas por DPAPI e sem retorno do segredo pela API.
 - Modelo específico configurável por agente sem sessão Codex, com registro do provedor usado; agentes Codex mantêm Ollama local como fallback.
+- Prioridade persistente de 1 a 5 por tarefa, editável antes do envio e respeitada pelo despachante e pelo MCP.
 
 ### Corrigido no ProjetoHUB
 

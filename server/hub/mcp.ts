@@ -56,8 +56,8 @@ export function createMcpRequestHandler(deps: McpDependencies): (req: IncomingMe
       ({ id, nome, objetivo }) => deps.hub.updateAgent(id, { name: nome, objective: objetivo }));
     tool('encerrar_agente', 'Encerra o agente e cancela tarefas ainda não entregues.', z.object({ id: z.string() }),
       ({ id }) => deps.hub.setAgentStatus(id, 'ended'));
-    tool('criar_tarefa', 'Cria uma tarefa para um agente. A entrega ao Codex depende de sessão vinculada.', z.object({ agenteId: z.string(), instrucao: z.string() }),
-      ({ agenteId, instrucao }) => deps.hub.createTask({ agentId: agenteId, instruction: instrucao }));
+    tool('criar_tarefa', 'Cria uma tarefa para um agente, com prioridade opcional de 1 a 5. A entrega ao Codex depende de sessão vinculada.', z.object({ agenteId: z.string(), instrucao: z.string(), prioridade: z.number().int().min(1).max(5).optional() }),
+      ({ agenteId, instrucao, prioridade }) => deps.hub.createTask({ agentId: agenteId, instruction: instrucao, priority: prioridade }));
     tool('consultar_tarefas', 'Lista tarefas e estados persistidos.', z.object({}), () => deps.hub.listTasks());
     tool('pausar_tarefa', 'Pausa uma tarefa ainda não entregue ao Codex.', z.object({ id: z.string() }), ({ id }) => {
       const task = deps.hub.listTasks().find((t) => t.id === id);

@@ -26,6 +26,22 @@ it('queues one real Codex instruction and records only delivery', async () => {
   expect(store.listTasks().find((t) => t.id === second.id)?.status).toBe('queued');
 });
 
+it('dispatches higher priority first while retaining creation order for ties', async () => {
+  const { store, agent } = fixture();
+  const normal = store.createTask({ agentId: agent.id, instruction: 'Normal', priority: 3 });
+  const urgent = store.createTask({ agentId: agent.id, instruction: 'Urgente', priority: 5 });
+  const nextUrgent = store.createTask({ agentId: agent.id, instruction: 'Outra urgente', priority: 5 });
+  const sent: string[] = [];
+  const runner = async (job: { text: string }) => { sent.push(job.text); return { ok: true as const }; };
+  await dispatchWithLocalFallback(store, runner, async () => ({ text: 'local', model: 'local' }));
+  await dispatchWithLocalFallback(store, runner, async () => ({ text: 'local', model: 'local' }));
+  await dispatchWithLocalFallback(store, runner, async () => ({ text: 'local', model: 'local' }));
+  expect(sent).toEqual(['Urgente', 'Outra urgente', 'Normal']);
+  expect(store.listTasks().find((task) => task.id === normal.id)?.status).toBe('sent');
+  expect(store.listTasks().find((task) => task.id === urgent.id)?.status).toBe('sent');
+  expect(store.listTasks().find((task) => task.id === nextUrgent.id)?.status).toBe('sent');
+});
+
 it('records failed delivery without claiming completion', async () => {
   const { store, agent } = fixture();
   const task = store.createTask({ agentId: agent.id, instruction: 'Falha' });
