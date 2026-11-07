@@ -15,6 +15,7 @@ import type { ConnectionPublisher } from './connection-publisher';
 import type { BackupManager } from './backup';
 import type { WindowsStartupManager } from './windows-startup';
 import type { EvolutionSettings } from './evolution-settings';
+import { connectJobInstance, ensureJobInstance } from './evolution-instance';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Corpo JSON inválido');
@@ -111,6 +112,22 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     if (!evolution) sendJson(res, 503, { error: 'Configuração Evolution indisponível' });
     else if (req.method === 'DELETE') { req.resume(); sendJson(res, 200, evolution.clearKey()); }
     else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  if (path === '/api/hub/whatsapp/instance' || path === '/api/hub/whatsapp/instance/connect') {
+    if (!whatsapp || !evolution) sendJson(res, 503, { error: 'Configuração WhatsApp indisponível' });
+    else if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
+    else {
+      req.resume();
+      if (!whatsapp.status().mainNumber || !whatsapp.status().secondaryNumber) sendJson(res, 409, { error: 'Configure primeiro os números principal e secundário' });
+      else void evolution.apiKey().then((apiKey) => {
+        const options = { baseUrl: evolution.status().baseUrl, apiKey, fetcher };
+        return path.endsWith('/connect') ? connectJobInstance(options) : ensureJobInstance(options);
+      }).then((result) => {
+        res.setHeader('Cache-Control', 'no-store');
+        sendJson(res, result.created ? 201 : 200, result);
+      }).catch((error) => fail(res, error));
+    }
     return true;
   }
   if (path === '/api/hub/whatsapp/webhook-token') {

@@ -28,6 +28,7 @@ do meio (0.**3**.0).
 - Inicializador `INICIAR-PROJETOHUB.cmd` e opção no painel para iniciar junto com o Windows.
 - Retentativas limitadas e persistentes para falhas temporárias do Ollama, sem bloquear outras tarefas; retomada manual de tarefas com erro.
 - URL e chave da Evolution API configuráveis pelo painel, com proteção da chave pela conta do Windows.
+- Criação guiada da instância exclusiva de emprego após verificar duplicatas, com QR de pareamento temporário no painel.
 
 ## [1.0.3] - 2026-10-16
 

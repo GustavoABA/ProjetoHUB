@@ -97,6 +97,34 @@ it('configures Evolution through the local API without returning its key', async
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 
+it('requires configured numbers and preserves an existing Evolution instance', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
+  const hub = new HubStore(join(dir, 'state.json'));
+  const whatsapp = new WhatsAppStore(join(dir, 'whatsapp.json'));
+  const evolution = new EvolutionSettings(join(dir, 'evolution-settings.json'), { EVOLUTION_API_KEY: 'test-key' });
+  const calls: string[] = [];
+  const fetcher = (async (url: string | URL | Request) => {
+    calls.push(String(url));
+    return new Response(JSON.stringify([{ name: 'procura-de-emprego', connectionStatus: 'open' }]), { status: 200 });
+  }) as typeof fetch;
+  const server = http.createServer((req, res) => {
+    handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), hub,
+      undefined, fetcher, undefined, undefined, undefined, undefined, whatsapp,
+      undefined, undefined, undefined, undefined, undefined, undefined, evolution);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const url = `http://127.0.0.1:${address.port}/api/hub/whatsapp/instance`;
+    const post = () => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    expect((await post()).status).toBe(409);
+    expect(calls).toHaveLength(0);
+    whatsapp.configure({ mainNumber: '5511999999999', secondaryNumber: '5511888888888' });
+    expect(await (await post()).json()).toMatchObject({ instance: 'procura-de-emprego', created: false, status: 'open' });
+    expect(calls).toEqual(['http://127.0.0.1:8080/instance/fetchInstances']);
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
 it('refuses management access from a non-loopback socket', () => {
   const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
   const req = new http.IncomingMessage(new Socket());
