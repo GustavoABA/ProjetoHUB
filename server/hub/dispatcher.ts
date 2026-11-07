@@ -29,10 +29,11 @@ export async function dispatchNext(store: HubStore, runner: CodexQueueRunner, no
   }
 }
 
-/** Local text fallback is separate from Codex delivery and never reports external actions as complete. */
+/** Codex delivery, a verified orchestrator action, or a text-only model result. */
 export async function dispatchWithLocalFallback(store: HubStore, runner: CodexQueueRunner | undefined,
   local: (instruction: string, objective: string, modelId?: string) => Promise<{ text: string; model: string; provider?: Provider }>,
-  now = Date.now(), eligible: (agent: HubAgent) => boolean = () => true): Promise<HubTask | undefined> {
+  now = Date.now(), eligible: (agent: HubAgent) => boolean = () => true,
+  action?: (task: HubTask, agent: HubAgent) => Promise<string | undefined>): Promise<HubTask | undefined> {
   const task = prioritized(store).find((t) => (t.status === 'queued' || t.status === 'unassigned') &&
     due(t, now) && !['paused', 'ended'].includes(store.agent(t.agentId)?.status ?? 'active') &&
     Boolean(store.agent(t.agentId) && eligible(store.agent(t.agentId)!)));
@@ -51,6 +52,14 @@ export async function dispatchWithLocalFallback(store: HubStore, runner: CodexQu
         return store.setTaskStatus(task.id, 'failed', error instanceof Error ? error.message : 'Falha no Codex');
     }
   } else store.setTaskStatus(task.id, 'dispatching');
+  if (action) {
+    try {
+      const result = await action(task, agent);
+      if (result !== undefined) return store.recordActionResult(task.id, result);
+    } catch (error) {
+      return store.setTaskStatus(task.id, 'failed', `Ação: ${error instanceof Error ? error.message : 'falha de execução'}`);
+    }
+  }
   try {
     const answer = await local(task.instruction, agent.objective, agent.codexThread ? undefined : agent.modelId);
     return store.recordLocalResult(task.id, answer.text, answer.model, answer.provider ?? 'ollama');

@@ -200,6 +200,18 @@ export class HubStore {
     return structuredClone(task);
   }
 
+  recordActionResult(id: string, text: string): HubTask {
+    const task = this.state.tasks.find((item) => item.id === id);
+    if (!task || task.status !== 'dispatching') throw new Error('Tarefa não está em execução');
+    if (typeof text !== 'string' || !text.trim() || text.length > 5_000) throw new Error('Resultado da ação inválido');
+    task.result = text;
+    delete task.executionProvider; delete task.executionModel;
+    task.status = 'done';
+    task.updatedAt = new Date().toISOString();
+    delete task.error; delete task.nextAttemptAt;
+    this.save(); return structuredClone(task);
+  }
+
   updateAgent(id: string, changes: { name?: string; objective?: string; modelId?: string | null }): HubAgent {
     const agent = this.state.agents.find((a) => a.id === id);
     if (!agent) throw new Error('Agente não encontrado');

@@ -1,4 +1,4 @@
-type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; modelId?: string; status?: 'active' | 'paused' | 'ended' };
+type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; modelId?: string; systemKey?: string; status?: 'active' | 'paused' | 'ended' };
 type Task = { id: string; agentId: string; instruction: string; priority?: number; status: string; error?: string; result?: string; executionProvider?: string; executionModel?: string; localRetryCount?: number; nextAttemptAt?: string };
 type ExecutionStatus = { maxConcurrent: number; active: number };
 type Session = { name: string; sessionId: string; account: string; provider: string };
@@ -47,7 +47,7 @@ export function mountHubPanel(): void {
   panel.innerHTML = `<div class="hub-head"><h2>ProjetoHUB · Agentes e tarefas</h2><button type="button" data-close>Fechar</button></div>
     <p>O escritório mostra sessões reais do Codex. Agentes sem sessão vinculada executam tarefas textuais pelo modelo escolhido ou pelo Ollama local automático.</p>
     <h3>Criar agente</h3><form id="hub-agent-form"><label>Nome<input name="name" maxlength="100" required></label><label>Objetivo<input name="objective" maxlength="2000" required></label><label>Sessão Codex existente (opcional)<select name="session"><option value="">Sem vínculo</option></select></label><label>Modelo para agente sem Codex<select name="modelId"><option value="">Ollama local automático</option></select></label><label>Subagente de (opcional)<select name="parent"><option value="">Agente principal</option></select></label><button>Criar agente</button></form>
-    <h3>Nova tarefa</h3><form id="hub-task-form"><label>Agente<select name="agent" required></select></label><label>Instrução<input name="instruction" maxlength="10000" required></label><label>Prioridade<select name="priority"><option value="1">1 · Baixa</option><option value="2">2</option><option value="3" selected>3 · Normal</option><option value="4">4</option><option value="5">5 · Alta</option></select></label><button>Criar tarefa</button></form>
+    <h3>Nova tarefa</h3><form id="hub-task-form"><label>Agente<select name="agent" required></select></label><label>Instrução ou termo de busca<input name="instruction" maxlength="10000" required></label><label>Prioridade<select name="priority"><option value="1">1 · Baixa</option><option value="2">2</option><option value="3" selected>3 · Normal</option><option value="4">4</option><option value="5">5 · Alta</option></select></label><button>Criar tarefa</button></form><p id="hub-task-hint"></p>
     <form id="hub-execution-form"><label>Execuções simultâneas<select name="maxConcurrent"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label><button>Salvar limite</button></form><p id="hub-execution-status"></p>
     <h3>Perguntas pendentes</h3><form id="hub-question-form"><label>Tarefa<select name="task" required></select></label><label>Pergunta<input name="text" maxlength="2000" required></label><label>Candidatura (opcional)<select name="applicationId"><option value="">Sem candidatura</option></select></label><button>Registrar pergunta</button></form><ul id="hub-questions"></ul>
     <h3>WhatsApp · Evolution API</h3><p>A instância lógica é procura-de-emprego. Configure os números com DDI e DDD. Nenhuma mensagem será enviada antes de acionar o envio de uma pergunta.</p>
@@ -99,6 +99,7 @@ export function mountHubPanel(): void {
   const agentModel = agentForm.elements.namedItem('modelId') as HTMLSelectElement;
   const parents = agentForm.elements.namedItem('parent') as HTMLSelectElement;
   const agentsSelect = taskForm.elements.namedItem('agent') as HTMLSelectElement;
+  const taskInstruction = taskForm.elements.namedItem('instruction') as HTMLInputElement;
   const questionTasks = questionForm.elements.namedItem('task') as HTMLSelectElement;
   const questionApplications = questionForm.elements.namedItem('applicationId') as HTMLSelectElement;
   const applicationJobs = applicationForm.elements.namedItem('job') as HTMLSelectElement;
@@ -242,7 +243,7 @@ export function mountHubPanel(): void {
     agentModel.disabled = Boolean(sessions.value);
     const agentList = panel.querySelector('#hub-agents')!; agentList.replaceChildren();
     for (const agent of agents) {
-      if (agent.status !== 'ended') { option(parents, agent.id, agent.name); option(agentsSelect, agent.id, agent.name); }
+      if (agent.status !== 'ended') { option(parents, agent.id, agent.name); option(agentsSelect, agent.id, agent.name); agentsSelect.options[agentsSelect.length - 1].dataset.systemKey = agent.systemKey ?? ''; }
       const li = document.createElement('li'); li.textContent = `${agent.name} — ${agent.objective}`;
       const selectedModel = router.models.find((model) => model.id === agent.modelId);
       const detail = document.createElement('small'); detail.textContent = ` · ${agent.status === 'ended' ? 'encerrado' : agent.status === 'paused' ? 'pausado' : 'ativo'} · ${agent.codexThread ? 'Codex → Ollama quando indisponível' : agent.modelId ? selectedModel ? `${selectedModel.provider} / ${selectedModel.model}${selectedModel.available ? '' : ' · indisponível'}` : 'modelo removido · aguardando seleção' : 'Ollama local automático'}`; li.append(detail);
@@ -264,6 +265,12 @@ export function mountHubPanel(): void {
       }
       agentList.append(li);
     }
+    const researcherSelected = agents.find((agent) => agent.id === agentsSelect.value)?.systemKey === 'job-search/researcher';
+    taskInstruction.placeholder = researcherSelected ? 'Termo de busca na Remotive, até 100 caracteres' : 'Descreva a tarefa';
+    taskInstruction.maxLength = researcherSelected ? 100 : 10_000;
+    (panel.querySelector('#hub-task-hint') as HTMLElement).textContent = researcherSelected
+      ? 'Pesquisador de vagas: informe apenas o termo de busca. A consulta usa a Remotive e registra somente anúncios retornados pela fonte.'
+      : '';
     const taskList = panel.querySelector('#hub-tasks')!; taskList.replaceChildren();
     for (const task of tasks.slice().reverse()) {
       if (['queued', 'unassigned', 'paused'].includes(task.status)) option(questionTasks, task.id, `${task.instruction.slice(0, 70)} · ${task.id.slice(0, 8)}`);
@@ -286,7 +293,7 @@ export function mountHubPanel(): void {
         };
         li.append(retry);
       }
-      if (task.result) { const detail = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = `Resposta do ${task.executionProvider ?? 'modelo'} (${task.executionModel ?? 'modelo não informado'})`; const output = document.createElement('pre'); output.textContent = task.result; output.style.whiteSpace = 'pre-wrap'; detail.append(summary, output); li.append(detail); }
+      if (task.result) { const detail = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = task.executionProvider ? `Resposta do ${task.executionProvider} (${task.executionModel ?? 'modelo não informado'})` : 'Resultado da ação'; const output = document.createElement('pre'); output.textContent = task.result; output.style.whiteSpace = 'pre-wrap'; detail.append(summary, output); li.append(detail); }
       taskList.append(li);
     }
     const questionList = panel.querySelector('#hub-questions')!; questionList.replaceChildren();
@@ -409,6 +416,12 @@ export function mountHubPanel(): void {
   taskForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(taskForm);
     void api('/api/hub/tasks', { agentId: data.get('agent'), instruction: data.get('instruction'), priority: Number(data.get('priority')) })
       .then(() => { taskForm.reset(); message.textContent = 'Tarefa registrada.'; return refresh(); }).catch(showError); };
+  agentsSelect.onchange = () => {
+    const researcherSelected = agentsSelect.selectedOptions[0]?.dataset.systemKey === 'job-search/researcher';
+    taskInstruction.placeholder = researcherSelected ? 'Termo de busca na Remotive, até 100 caracteres' : 'Descreva a tarefa';
+    taskInstruction.maxLength = researcherSelected ? 100 : 10_000;
+    (panel.querySelector('#hub-task-hint') as HTMLElement).textContent = researcherSelected ? 'Pesquisador de vagas: informe apenas o termo de busca. A consulta usa a Remotive e registra somente anúncios retornados pela fonte.' : '';
+  };
   executionForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(executionForm);
     void api('/api/hub/execution', { maxConcurrent: Number(data.get('maxConcurrent')) }, 'PUT')
       .then(() => { message.textContent = 'Limite de execução salvo.'; return refresh(); }).catch(showError); };

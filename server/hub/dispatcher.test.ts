@@ -5,6 +5,7 @@ import { afterEach, expect, it } from 'vitest';
 import { HubStore } from './store';
 import { dispatchNext, dispatchWithLocalFallback } from './dispatcher';
 import { ModelRouter } from './router';
+import { JobStore, searchRemotive } from './jobs';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -75,6 +76,43 @@ it('passes an agent model selection to execution and records the provider that a
   });
   expect(selected).toEqual([modelId]);
   expect(store.listTasks().find((item) => item.id === task.id)).toMatchObject({ status: 'result_ready', executionProvider: 'deepseek', executionModel: 'chosen-model' });
+});
+
+it('executes the researcher action against a source and persists only real listings', async () => {
+  const { store } = fixture();
+  store.ensureJobSearchTeam();
+  const researcher = store.listAgents().find((agent) => agent.systemKey === 'job-search/researcher')!;
+  const task = store.createTask({ agentId: researcher.id, instruction: 'assistente' });
+  const jobs = new JobStore(join(dirs[0], 'jobs.json'));
+  const fetcher = async () => new Response(JSON.stringify({ jobs: [{ id: 101, url: 'https://remotive.com/remote-jobs/support/assistant-101',
+    title: 'Assistente remoto', company_name: 'Empresa', candidate_required_location: 'Brazil', description: '<p>Atendimento</p>' }] }), { status: 200 });
+  let modelCalls = 0;
+  const result = await dispatchWithLocalFallback(store, undefined, async () => { modelCalls++; return { text: 'inventado', model: 'local' }; },
+    Date.now(), () => true, async (selected) => {
+      const found = await searchRemotive(jobs, selected.instruction, fetcher);
+      return `Remotive: ${found.added} vaga nova.`;
+    });
+  expect(modelCalls).toBe(0);
+  expect(result).toMatchObject({ id: task.id, status: 'done', result: 'Remotive: 1 vaga nova.' });
+  expect(jobs.list()).toMatchObject([{ company: 'Empresa', originalUrl: 'https://remotive.com/remote-jobs/support/assistant-101' }]);
+  expect(result?.executionProvider).toBeUndefined();
+});
+
+it('reports a source failure without asking a language model to invent search results', async () => {
+  const { store } = fixture(); store.ensureJobSearchTeam();
+  const researcher = store.listAgents().find((agent) => agent.systemKey === 'job-search/researcher')!;
+  const task = store.createTask({ agentId: researcher.id, instruction: 'assistente' });
+  const jobs = new JobStore(join(dirs[0], 'jobs.json'));
+  let modelCalls = 0;
+  const result = await dispatchWithLocalFallback(store, undefined, async () => { modelCalls++; return { text: 'inventado', model: 'local' }; },
+    Date.now(), () => true, async (selected) => {
+      await searchRemotive(jobs, selected.instruction, async () => new Response('indisponível', { status: 503 }));
+      return 'não alcançado';
+    });
+  expect(result).toMatchObject({ id: task.id, status: 'failed' });
+  expect(result?.error).toContain('Remotive respondeu HTTP 503');
+  expect(modelCalls).toBe(0);
+  expect(jobs.list()).toEqual([]);
 });
 
 it('falls back only for a recognized Codex availability error', async () => {

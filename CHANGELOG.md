@@ -35,6 +35,7 @@ do meio (0.**3**.0).
 - Modelo específico configurável por agente sem sessão Codex, com registro do provedor usado; agentes Codex mantêm Ollama local como fallback.
 - Prioridade persistente de 1 a 5 por tarefa, editável antes do envio e respeitada pelo despachante e pelo MCP.
 - Limite de 1 a 4 despachos simultâneos configurável no HUD, persistente e incluído nos backups.
+- Tarefas do Pesquisador de vagas consultam a Remotive pelo termo informado e registram resultados reais, sem fabricar vagas por IA.
 
 ### Corrigido no ProjetoHUB
 

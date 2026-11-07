@@ -61,7 +61,7 @@ import { WorldViewer } from './world/viewer';
 import { HubStore } from './hub/store';
 import { handleHubRoute } from './hub/http';
 import { dispatchWithLocalFallback } from './hub/dispatcher';
-import { JobStore, runScheduledSearch } from './hub/jobs';
+import { JobStore, runScheduledSearch, searchRemotive } from './hub/jobs';
 import { BrowserManager } from './hub/browser';
 import { ModelRouter } from './hub/router';
 import { TaskRuntime } from './hub/task-runtime';
@@ -410,10 +410,15 @@ const taskRuntime = new TaskRuntime(join(config.dataDir, 'projecthub', 'executio
     ], modelId ? undefined : 'ollama', modelId);
     return { text: response.text, model: response.model, provider: response.provider };
   };
-  const eligible = (agent: { codexThread?: string; modelId?: string }) => agent.codexThread
+  const eligible = (agent: { codexThread?: string; modelId?: string; systemKey?: string }) => agent.systemKey === 'job-search/researcher' ? true : agent.codexThread
     ? Boolean(hubRunner || localAvailable)
     : agent.modelId ? models.some((model) => model.id === agent.modelId && model.available) : localAvailable;
-  await dispatchWithLocalFallback(projectHub, hubRunner, local, Date.now(), eligible);
+  const action = async (task: { instruction: string }, agent: { systemKey?: string }): Promise<string | undefined> => {
+    if (agent.systemKey !== 'job-search/researcher') return undefined;
+    const found = await searchRemotive(jobStore, task.instruction);
+    return `Pesquisa Remotive: ${found.added} vaga(s) nova(s) entre ${found.jobs.length} anúncio(s) válidos. Consulte Vagas encontradas para ver a origem e o link de cada uma.`;
+  };
+  await dispatchWithLocalFallback(projectHub, hubRunner, local, Date.now(), eligible, action);
 });
 const hubDispatcher = setInterval(() => {
   void taskRuntime.tick().catch((error) => log.warn(tr('Falha ao enviar tarefa do ProjetoHUB: {0}', [errMsg(error)])));

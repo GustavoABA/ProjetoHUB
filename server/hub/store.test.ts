@@ -39,6 +39,16 @@ it('persists task priority and rejects values outside the supported range', () =
   expect(() => store.setTaskPriority(urgent.id, 5)).toThrow('Prioridade');
 });
 
+it('records a verified external action separately from a model text result', () => {
+  const path = fixture(); const store = new HubStore(path);
+  const agent = store.createAgent({ name: 'Pesquisa', objective: 'Vagas' });
+  const task = store.createTask({ agentId: agent.id, instruction: 'assistente' });
+  store.setTaskStatus(task.id, 'dispatching');
+  expect(store.recordActionResult(task.id, 'Remotive: 1 vaga nova.')).toMatchObject({ status: 'done', result: 'Remotive: 1 vaga nova.' });
+  expect(new HubStore(path).listTasks().find((item) => item.id === task.id)).not.toHaveProperty('executionProvider');
+  expect(() => store.recordActionResult(task.id, 'duplicado')).toThrow();
+});
+
 it('persists a selected model for an agent without a Codex session and allows clearing it', () => {
   const file = fixture();
   const store = new HubStore(file);
