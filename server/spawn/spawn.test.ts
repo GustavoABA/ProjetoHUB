@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -162,7 +162,7 @@ describe('novo agente em segundo plano (claude --bg)', () => {
     expect(cliArgs({ folder: '/p', prompt: '  ' })).toEqual(['--bg', '-n', 'Habblaud']);
   });
 
-  it('createCliRunner roda o binário na pasta, sem shell, e lê o id; erro vira a 1ª linha', async () => {
+  it.skipIf(process.platform === 'win32')('createCliRunner roda o binário na pasta, sem shell, e lê o id; erro vira a 1ª linha', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'hb-spawn-'));
     const bin = join(dir, 'claude');
     writeFileSync(
@@ -179,6 +179,15 @@ describe('novo agente em segundo plano (claude --bg)', () => {
     expect(realpathSync(args[0])).toBe(realpathSync(dir));
     expect(args.slice(1)).toEqual(['--bg', '-n', 'Habblaud: faça $(rm -rf x) && y', '--', 'faça $(rm -rf x) && y']);
     expect(await run({ folder: tmpdir(), prompt: 'oi' })).toEqual({ ok: false, error: 'Workspace not trusted. Run claude once' });
+  });
+
+  it.skipIf(process.platform !== 'win32')('reconhece um executável do Claude Code no PATH do Windows', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hb-spawn-win-'));
+    try {
+      const bin = join(dir, 'claude.exe');
+      writeFileSync(bin, 'teste');
+      expect(runnableClaudeBin({ PATH: dir })).toBe(bin);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
   it('launch: roda em segundo plano; se não der, abre o app e diz por quê', async () => {

@@ -239,7 +239,7 @@ describe('BuildingUplink: conexão e remessas', () => {
   it('última remessa em disco: modo 600, sem token, relida só na mesma sessão', async () => {
     const h = await start();
     await waitFor(() => !!h.uplink.lastUplink()?.ack, 'ack');
-    expect(statSync(h.lastFile).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(h.lastFile).mode & 0o777).toBe(0o600);
     const text = readFileSync(h.lastFile, 'utf8');
     expect(text).not.toContain(h.token);
     expect(JSON.parse(text).uplink).toEqual(h.uplink.lastUplink()!.uplink);
@@ -405,10 +405,11 @@ describe('BuildingUplink: conexão e remessas', () => {
     const h = await start({ tokensVisible: false });
     await waitFor(() => h.world.ws.uplinks.length === 1, 'primeira');
     expect(h.world.ws.uplinks[0].uplink.tokens).toBeUndefined();
-    h.store.setTheme('christmas');
+    const nextTheme = h.world.ws.uplinks[0].uplink.theme === 'christmas' ? 'halloween' : 'christmas';
+    h.store.setTheme(nextTheme);
     h.uplink.themeChanged();
     await waitFor(() => h.world.ws.uplinks.length === 2, 'tema');
-    expect(h.world.ws.uplinks[1].uplink.theme).toBe('christmas');
+    expect(h.world.ws.uplinks[1].uplink.theme).toBe(nextTheme);
   });
 
   it('welcome.building: andares e agentes do mundo até a primeira remessa daqui', async () => {

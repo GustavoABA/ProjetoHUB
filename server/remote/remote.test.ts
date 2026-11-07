@@ -128,8 +128,10 @@ describe.skipIf(!HAS_OPENSSL)('certificados (openssl)', () => {
     const paths = tlsPaths(join(tmp.dir, 'remote-tls'));
     const r = ensureServerCert(paths, targets);
     expect(r).toMatchObject({ createdCa: true, issued: true });
-    expect(statSync(paths.caKey).mode & 0o777).toBe(0o600);
-    expect(statSync(paths.base).mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32') {
+      expect(statSync(paths.caKey).mode & 0o777).toBe(0o600);
+      expect(statSync(paths.base).mode & 0o777).toBe(0o700);
+    }
     const cert = new X509Certificate(readFileSync(paths.serverCert));
     const ca = new X509Certificate(readFileSync(paths.caCert));
     expect(cert.verify(ca.publicKey)).toBe(true);

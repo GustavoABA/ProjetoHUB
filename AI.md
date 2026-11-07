@@ -222,3 +222,11 @@ Cada tarefa nova recebe prioridade inteira de 1 a 5 (padrão 3). O painel permit
 
 **Verificação:** testes com promessas controladas comprovaram o teto de dois despachos simultâneos, recusa de um terceiro, liberação de vaga, persistência da configuração e seleção de tarefas distintas durante esperas de I/O. A API local aceitou o novo limite e recusou valores inválidos. `npx vitest run server/hub` passou com 110 testes e dois optativos ignorados; checagem de tipos e build passaram. Não foi feita uma carga simultânea com sessões Codex ou provedores externos reais.
 
+## Atualização: suíte geral no Windows
+
+A suíte geral foi repetida nesta máquina Windows após as mudanças do gerenciador: 1.968 testes passaram, 16 falharam e 15 foram ignorados. As falhas reproduzíveis eram expectativas de caminhos Unix em testes de Whisper, TLS remoto e anexos; leitura de `docker-compose.yml` exigia LF exato; um teste tentava executar um script `#!/bin/sh` no Windows. O teste de tema do World fixava Natal como próximo tema, mas em novembro o tema automático já é Natal. Os testes foram ajustados para usar caminhos nativos, aceitar CRLF, verificar uma mudança real de tema e reservar o script de shell para plataformas POSIX. Um teste específico para localizar `claude.exe` no PATH do Windows foi adicionado.
+
+As asserções de bits POSIX `0600`/`0700` continuam ativas em Linux/macOS. No Windows, o modo retornado pelo Node no NTFS não representa as ACLs, então essas asserções são condicionais; o restante dos testes de conteúdo, persistência, isolamento e ausência de token em respostas continua ativo. **As ACLs dos arquivos legados de segredo no Windows não foram auditadas por esta rodada**; a suíte verde não demonstra que elas estejam restritas. Nenhum código que monta dados para o Habblaud World foi alterado.
+
+**Resultado verificado:** os oito arquivos antes problemáticos passaram juntos (146 testes, um ignorado). Depois, `npm test` passou integralmente com 1.983 testes aprovados e 16 ignorados, em 184 arquivos. Após acrescentar o teste específico de descoberta de `claude.exe`, esse arquivo passou isoladamente com 13 testes e um ignorado; a suíte completa não foi repetida depois dessa adição. Checagem de tipos, build e `git diff --check` passaram.
+
