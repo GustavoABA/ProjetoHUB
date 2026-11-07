@@ -61,7 +61,8 @@ import { WorldViewer } from './world/viewer';
 import { HubStore } from './hub/store';
 import { handleHubRoute } from './hub/http';
 import { dispatchWithLocalFallback } from './hub/dispatcher';
-import { JobStore, runScheduledSearch, searchRemotive } from './hub/jobs';
+import { JobStore, runScheduledSearch } from './hub/jobs';
+import { reconcileAnalysisTasks, runJobAction } from './hub/job-actions';
 import { BrowserManager } from './hub/browser';
 import { ModelRouter } from './hub/router';
 import { TaskRuntime } from './hub/task-runtime';
@@ -99,6 +100,10 @@ names.load();
 const projectHub = new HubStore(join(config.dataDir, 'projecthub', 'state.json'));
 projectHub.ensureJobSearchTeam();
 const jobStore = new JobStore(join(config.dataDir, 'projecthub', 'jobs.json'));
+const reconcileJobAnalysis = () => { try { reconcileAnalysisTasks(projectHub, jobStore); }
+  catch (error) { log.warn(tr('Falha ao delegar análise de vagas: {0}', [errMsg(error)])); } };
+reconcileJobAnalysis();
+const jobAnalysisTimer = setInterval(reconcileJobAnalysis, 30_000);
 const browserManager = new BrowserManager({ profileDir: join(config.dataDir, 'projecthub', 'browser-profile'), logFile: join(config.dataDir, 'projecthub', 'navigation.jsonl') });
 const providerCredentials = new ProviderCredentials(join(config.dataDir, 'projecthub', 'provider-credentials.json'));
 const modelRouter = new ModelRouter(join(config.dataDir, 'projecthub', 'router.json'), fetch, process.env, providerCredentials);
@@ -413,17 +418,15 @@ const taskRuntime = new TaskRuntime(join(config.dataDir, 'projecthub', 'executio
   const eligible = (agent: { codexThread?: string; modelId?: string; systemKey?: string }) => agent.systemKey === 'job-search/researcher' ? true : agent.codexThread
     ? Boolean(hubRunner || localAvailable)
     : agent.modelId ? models.some((model) => model.id === agent.modelId && model.available) : localAvailable;
-  const action = async (task: { instruction: string }, agent: { systemKey?: string }): Promise<string | undefined> => {
-    if (agent.systemKey !== 'job-search/researcher') return undefined;
-    const found = await searchRemotive(jobStore, task.instruction);
-    return `Pesquisa Remotive: ${found.added} vaga(s) nova(s) entre ${found.jobs.length} anúncio(s) válidos. Consulte Vagas encontradas para ver a origem e o link de cada uma.`;
-  };
+  const action = (task: Parameters<typeof runJobAction>[0], agent: Parameters<typeof runJobAction>[1]) =>
+    runJobAction(task, agent, { hub: projectHub, jobs: jobStore, profile: profileStore, router: modelRouter });
   await dispatchWithLocalFallback(projectHub, hubRunner, local, Date.now(), eligible, action);
 });
 const hubDispatcher = setInterval(() => {
   void taskRuntime.tick().catch((error) => log.warn(tr('Falha ao enviar tarefa do ProjetoHUB: {0}', [errMsg(error)])));
 }, 2_000);
 const searchTick = () => { void runScheduledSearch(jobStore).then((ran) => {
+  if (ran) reconcileJobAnalysis();
   if (ran && jobStore.schedule()?.lastError) log.warn(tr('Pesquisa agendada do ProjetoHUB: {0}', [jobStore.schedule()!.lastError]));
 }).catch((error) => log.warn(tr('Falha na agenda de vagas do ProjetoHUB: {0}', [errMsg(error)]))); };
 searchTick();
@@ -679,6 +682,7 @@ function shutdown(signal: string): void {
   clearInterval(ollamaDiscoveryTimer);
   clearInterval(backupTimer);
   clearInterval(jobSearchTimer);
+  clearInterval(jobAnalysisTimer);
   clearInterval(adminSessionTimer);
   clearInterval(connectionPublishTimer);
   clearInterval(webhookListenerTimer);

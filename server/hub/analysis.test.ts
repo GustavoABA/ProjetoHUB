@@ -32,6 +32,14 @@ it('does not assign a score without a confirmed profile', async () => {
   expect((await analyzeJob(jobs, profile, model, id)).compatibility).toBeNull();
 });
 
+it('accepts a JSON string array from a local model only when excerpts are in the announcement', async () => {
+  const { jobs, profile, id } = await setup();
+  const model = { complete: async () => completion('["Conhecimento em Excel."]') };
+  expect((await analyzeJob(jobs, profile, model, id)).requirements).toEqual(['Conhecimento em Excel.']);
+  const invented = { complete: async () => completion('["Graduação em medicina."]') };
+  await expect(analyzeJob(jobs, profile, invented, id)).rejects.toThrow('não localizado');
+});
+
 it('rejects invented requirements without changing persisted vacancy', async () => {
   const { jobs, profile, id } = await setup();
   const model = { complete: async () => completion('{"requirements":["Graduação em medicina."]}') };

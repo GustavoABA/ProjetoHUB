@@ -36,6 +36,7 @@ do meio (0.**3**.0).
 - Prioridade persistente de 1 a 5 por tarefa, editável antes do envio e respeitada pelo despachante e pelo MCP.
 - Limite de 1 a 4 despachos simultâneos configurável no HUD, persistente e incluído nos backups.
 - Tarefas do Pesquisador de vagas consultam a Remotive pelo termo informado e registram resultados reais, sem fabricar vagas por IA.
+- Vagas novas com descrição são delegadas uma vez ao Analista de requisitos; por padrão ele usa Ollama e salva apenas trechos presentes no anúncio.
 
 ### Corrigido no ProjetoHUB
 

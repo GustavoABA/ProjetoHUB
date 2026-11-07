@@ -57,6 +57,7 @@ export async function dispatchWithLocalFallback(store: HubStore, runner: CodexQu
       const result = await action(task, agent);
       if (result !== undefined) return store.recordActionResult(task.id, result);
     } catch (error) {
+      if (transientLocal(error)) return store.scheduleLocalRetry(task.id, error instanceof Error ? error.message : 'falha de comunicação', now, 'Ação');
       return store.setTaskStatus(task.id, 'failed', `Ação: ${error instanceof Error ? error.message : 'falha de execução'}`);
     }
   }

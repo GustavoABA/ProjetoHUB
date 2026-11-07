@@ -115,6 +115,17 @@ it('reports a source failure without asking a language model to invent search re
   expect(jobs.list()).toEqual([]);
 });
 
+it('backs off after a temporary action transport failure without consuming a model result', async () => {
+  const { store } = fixture(); store.ensureJobSearchTeam();
+  const researcher = store.listAgents().find((agent) => agent.systemKey === 'job-search/researcher')!;
+  const task = store.createTask({ agentId: researcher.id, instruction: 'assistente' });
+  const now = Date.parse('2026-11-07T00:00:00Z');
+  const result = await dispatchWithLocalFallback(store, undefined, async () => ({ text: 'inventado', model: 'local' }), now,
+    () => true, async () => { throw new Error('fetch failed'); });
+  expect(result).toMatchObject({ id: task.id, status: 'unassigned', localRetryCount: 1 });
+  expect(result?.error).toContain('Ação: fetch failed');
+});
+
 it('falls back only for a recognized Codex availability error', async () => {
   const { store, agent } = fixture();
   const task = store.createTask({ agentId: agent.id, instruction: 'Analise' });

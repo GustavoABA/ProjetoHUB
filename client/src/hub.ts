@@ -47,7 +47,7 @@ export function mountHubPanel(): void {
   panel.innerHTML = `<div class="hub-head"><h2>ProjetoHUB · Agentes e tarefas</h2><button type="button" data-close>Fechar</button></div>
     <p>O escritório mostra sessões reais do Codex. Agentes sem sessão vinculada executam tarefas textuais pelo modelo escolhido ou pelo Ollama local automático.</p>
     <h3>Criar agente</h3><form id="hub-agent-form"><label>Nome<input name="name" maxlength="100" required></label><label>Objetivo<input name="objective" maxlength="2000" required></label><label>Sessão Codex existente (opcional)<select name="session"><option value="">Sem vínculo</option></select></label><label>Modelo para agente sem Codex<select name="modelId"><option value="">Ollama local automático</option></select></label><label>Subagente de (opcional)<select name="parent"><option value="">Agente principal</option></select></label><button>Criar agente</button></form>
-    <h3>Nova tarefa</h3><form id="hub-task-form"><label>Agente<select name="agent" required></select></label><label>Instrução ou termo de busca<input name="instruction" maxlength="10000" required></label><label>Prioridade<select name="priority"><option value="1">1 · Baixa</option><option value="2">2</option><option value="3" selected>3 · Normal</option><option value="4">4</option><option value="5">5 · Alta</option></select></label><button>Criar tarefa</button></form><p id="hub-task-hint"></p>
+    <h3>Nova tarefa</h3><form id="hub-task-form"><label>Agente<select name="agent" required></select></label><label>Instrução ou termo de busca<input name="instruction" maxlength="10000" required></label><label id="hub-task-job-label" hidden>Vaga para analisar<select name="jobId"></select></label><label>Prioridade<select name="priority"><option value="1">1 · Baixa</option><option value="2">2</option><option value="3" selected>3 · Normal</option><option value="4">4</option><option value="5">5 · Alta</option></select></label><button>Criar tarefa</button></form><p id="hub-task-hint"></p>
     <form id="hub-execution-form"><label>Execuções simultâneas<select name="maxConcurrent"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label><button>Salvar limite</button></form><p id="hub-execution-status"></p>
     <h3>Perguntas pendentes</h3><form id="hub-question-form"><label>Tarefa<select name="task" required></select></label><label>Pergunta<input name="text" maxlength="2000" required></label><label>Candidatura (opcional)<select name="applicationId"><option value="">Sem candidatura</option></select></label><button>Registrar pergunta</button></form><ul id="hub-questions"></ul>
     <h3>WhatsApp · Evolution API</h3><p>A instância lógica é procura-de-emprego. Configure os números com DDI e DDD. Nenhuma mensagem será enviada antes de acionar o envio de uma pergunta.</p>
@@ -100,6 +100,8 @@ export function mountHubPanel(): void {
   const parents = agentForm.elements.namedItem('parent') as HTMLSelectElement;
   const agentsSelect = taskForm.elements.namedItem('agent') as HTMLSelectElement;
   const taskInstruction = taskForm.elements.namedItem('instruction') as HTMLInputElement;
+  const taskJobLabel = panel.querySelector('#hub-task-job-label') as HTMLLabelElement;
+  const taskJobSelect = taskForm.elements.namedItem('jobId') as HTMLSelectElement;
   const questionTasks = questionForm.elements.namedItem('task') as HTMLSelectElement;
   const questionApplications = questionForm.elements.namedItem('applicationId') as HTMLSelectElement;
   const applicationJobs = applicationForm.elements.namedItem('job') as HTMLSelectElement;
@@ -109,6 +111,21 @@ export function mountHubPanel(): void {
   let suggestedWebhookUrl = '';
   let providerStatuses: ProviderCredentialStatus = {};
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
+  const updateTaskFields = () => {
+    const role = agentsSelect.selectedOptions[0]?.dataset.systemKey;
+    const researcher = role === 'job-search/researcher';
+    const analyst = role === 'job-search/requirements';
+    taskInstruction.parentElement!.hidden = analyst;
+    taskInstruction.required = !analyst;
+    taskInstruction.disabled = analyst;
+    taskInstruction.placeholder = researcher ? 'Termo de busca na Remotive, até 100 caracteres' : 'Descreva a tarefa';
+    taskInstruction.maxLength = researcher ? 100 : 10_000;
+    taskJobLabel.hidden = !analyst;
+    taskJobSelect.required = analyst;
+    (panel.querySelector('#hub-task-hint') as HTMLElement).textContent = researcher
+      ? 'Pesquisador de vagas: informe apenas o termo de busca. A consulta usa a Remotive e registra somente anúncios retornados pela fonte.'
+      : analyst ? 'Analista de requisitos: escolha uma vaga salva. A extração usa o modelo escolhido no agente ou Ollama local e confere cada requisito no anúncio.' : '';
+  };
 
   async function refresh(): Promise<void> {
     const [agents, tasks, execution, questions, whatsapp, evolution, listener, profile, jobs, applications, schedule, browser, router, credentials, mcp, adminSession, backups, windowsStartup, snapshot, health] = await Promise.all([
@@ -229,7 +246,11 @@ export function mountHubPanel(): void {
       : 'Pesquisa automática desligada.';
     const selectedAgentModel = agentModel.value;
     const selectedSession = sessions.value;
-    sessions.length = 1; agentModel.length = 1; parents.length = 1; agentsSelect.length = 0; questionTasks.length = 0; questionApplications.length = 1; choices = [];
+    const selectedTaskAgent = agentsSelect.value;
+    const selectedTaskJob = taskJobSelect.value;
+    sessions.length = 1; agentModel.length = 1; parents.length = 1; agentsSelect.length = 0; taskJobSelect.length = 0; questionTasks.length = 0; questionApplications.length = 1; choices = [];
+    for (const job of jobs) option(taskJobSelect, job.id, `${job.title} — ${job.company}`);
+    if (selectedTaskJob && [...taskJobSelect.options].some((item) => item.value === selectedTaskJob)) taskJobSelect.value = selectedTaskJob;
     for (const model of router.models) option(agentModel, model.id, `${model.provider} / ${model.model}${model.available ? '' : ' · indisponível'}`);
     for (const app of applications) option(questionApplications, app.id, `${app.title} — ${app.company}`);
     for (const session of snapshot.agents.filter((a) => a.provider === 'codex')) {
@@ -265,12 +286,8 @@ export function mountHubPanel(): void {
       }
       agentList.append(li);
     }
-    const researcherSelected = agents.find((agent) => agent.id === agentsSelect.value)?.systemKey === 'job-search/researcher';
-    taskInstruction.placeholder = researcherSelected ? 'Termo de busca na Remotive, até 100 caracteres' : 'Descreva a tarefa';
-    taskInstruction.maxLength = researcherSelected ? 100 : 10_000;
-    (panel.querySelector('#hub-task-hint') as HTMLElement).textContent = researcherSelected
-      ? 'Pesquisador de vagas: informe apenas o termo de busca. A consulta usa a Remotive e registra somente anúncios retornados pela fonte.'
-      : '';
+    if (selectedTaskAgent && [...agentsSelect.options].some((item) => item.value === selectedTaskAgent)) agentsSelect.value = selectedTaskAgent;
+    updateTaskFields();
     const taskList = panel.querySelector('#hub-tasks')!; taskList.replaceChildren();
     for (const task of tasks.slice().reverse()) {
       if (['queued', 'unassigned', 'paused'].includes(task.status)) option(questionTasks, task.id, `${task.instruction.slice(0, 70)} · ${task.id.slice(0, 8)}`);
@@ -414,14 +431,9 @@ export function mountHubPanel(): void {
       .then(() => { agentForm.reset(); message.textContent = 'Agente criado.'; return refresh(); }).catch(showError); };
   sessions.onchange = () => { agentModel.disabled = Boolean(sessions.value); if (agentModel.disabled) agentModel.value = ''; };
   taskForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(taskForm);
-    void api('/api/hub/tasks', { agentId: data.get('agent'), instruction: data.get('instruction'), priority: Number(data.get('priority')) })
+    void api('/api/hub/tasks', { agentId: data.get('agent'), instruction: taskJobLabel.hidden ? data.get('instruction') : data.get('jobId'), priority: Number(data.get('priority')) })
       .then(() => { taskForm.reset(); message.textContent = 'Tarefa registrada.'; return refresh(); }).catch(showError); };
-  agentsSelect.onchange = () => {
-    const researcherSelected = agentsSelect.selectedOptions[0]?.dataset.systemKey === 'job-search/researcher';
-    taskInstruction.placeholder = researcherSelected ? 'Termo de busca na Remotive, até 100 caracteres' : 'Descreva a tarefa';
-    taskInstruction.maxLength = researcherSelected ? 100 : 10_000;
-    (panel.querySelector('#hub-task-hint') as HTMLElement).textContent = researcherSelected ? 'Pesquisador de vagas: informe apenas o termo de busca. A consulta usa a Remotive e registra somente anúncios retornados pela fonte.' : '';
-  };
+  agentsSelect.onchange = updateTaskFields;
   executionForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(executionForm);
     void api('/api/hub/execution', { maxConcurrent: Number(data.get('maxConcurrent')) }, 'PUT')
       .then(() => { message.textContent = 'Limite de execução salvo.'; return refresh(); }).catch(showError); };

@@ -157,13 +157,13 @@ export class HubStore {
     return structuredClone(task);
   }
 
-  scheduleLocalRetry(id: string, error: string, now = Date.now()): HubTask {
+  scheduleLocalRetry(id: string, error: string, now = Date.now(), label: 'Ollama' | 'Ação' = 'Ollama'): HubTask {
     const task = this.state.tasks.find((item) => item.id === id);
     if (!task || task.status !== 'dispatching') throw new Error('Tarefa não está em execução local');
     const attempt = (task.localRetryCount ?? 0) + 1;
     task.localRetryCount = attempt;
     task.updatedAt = new Date(now).toISOString();
-    task.error = `Ollama: ${error}`.slice(0, 500);
+    task.error = `${label}: ${error}`.slice(0, 500);
     if (attempt >= 5) { task.status = 'failed'; delete task.nextAttemptAt; }
     else {
       task.status = this.agent(task.agentId)?.codexThread ? 'queued' : 'unassigned';
