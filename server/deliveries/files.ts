@@ -5,7 +5,7 @@
 // Node puro e sem dependências: também é importado pelo auxiliar do host (via tsx).
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { posix, win32 } from 'node:path';
 import type { DeliveryAttachmentKind } from '../../shared/types';
 import { tr } from '../../shared/i18n';
 
@@ -51,9 +51,12 @@ export function fileType(path: string): { kind: DeliveryAttachmentKind; type: st
 
 /** Motivo para NÃO mostrar o caminho (só olhando o texto), ou undefined. */
 export function pathProblem(path: string): string | undefined {
-  if (!path || path.includes('\0') || !path.startsWith('/') || /(^|\/)\.\.(\/|$)/.test(path)) return tr('caminho inválido');
-  if (!fileType(path)) return tr('tipo de arquivo que não se mostra aqui');
-  if (SECRET_DIRS.test(path) || SECRET_NAMES.test(path)) return tr('arquivo protegido');
+  const canonical = path?.replace(/\\/g, '/');
+  if (!canonical || canonical.includes('\0') || canonical.startsWith('//') ||
+      !(canonical.startsWith('/') || /^[A-Za-z]:\//.test(canonical)) ||
+      /(^|\/)\.\.(\/|$)/.test(canonical) || /:/.test(canonical.replace(/^[A-Za-z]:/, ''))) return tr('caminho inválido');
+  if (!fileType(canonical)) return tr('tipo de arquivo que não se mostra aqui');
+  if (SECRET_DIRS.test(canonical) || SECRET_NAMES.test(canonical)) return tr('arquivo protegido');
   return undefined;
 }
 
@@ -99,12 +102,18 @@ export function insideKnownFolder(
   path: string,
   opts: { accountDirs: readonly string[]; roots: readonly string[]; exists?: (p: string) => boolean },
 ): boolean {
-  if (opts.roots.some((r) => r && path.startsWith(`${r.replace(/\/+$/, '')}/`))) return true;
+  if (pathProblem(path)) return false;
+  const canonical = path.replace(/\\/g, '/');
+  const compare = /^[A-Za-z]:\//.test(canonical) ? canonical.toLowerCase() : canonical;
+  if (opts.roots.some((root) => {
+    const normalized = root.replace(/\\/g, '/').replace(/\/+$/, '');
+    return normalized && compare.startsWith(`${/^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized}/`);
+  })) return true;
   const exists = opts.exists ?? existsSync;
   // Mesma codificação de sources/watcher.ts (encodeCwd): todo caractere não alfanumérico vira "-".
-  for (let dir = dirname(path); dir.split('/').filter(Boolean).length >= 2; dir = dirname(dir)) {
+  for (let dir = canonical.slice(0, canonical.lastIndexOf('/')); dir.split('/').filter(Boolean).length >= 2; dir = dir.slice(0, dir.lastIndexOf('/'))) {
     const encoded = dir.replace(/[^a-zA-Z0-9]/g, '-');
-    if (opts.accountDirs.some((acc) => exists(join(acc, 'projects', encoded)))) return true;
+    if (opts.accountDirs.some((acc) => exists(acc.startsWith('/') ? posix.join(acc, 'projects', encoded) : win32.join(acc, 'projects', encoded)))) return true;
   }
   return false;
 }

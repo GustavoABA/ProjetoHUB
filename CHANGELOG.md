@@ -35,6 +35,7 @@ do meio (0.**3**.0).
 ### Corrigido no ProjetoHUB
 
 - O fallback para Ollama local reconhece falha confirmada ao abrir uma sessão Codex e ausência do executável. Timeout ambíguo da fila não duplica a execução.
+- Links de entregas aceitam caminhos locais do Windows e mantêm a rejeição de segredos, travessia de pasta e compartilhamentos remotos.
 
 ## [1.0.3] - 2026-10-16
 

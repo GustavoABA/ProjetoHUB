@@ -7,7 +7,7 @@
 // Cada transcript é relido só quando muda (mtime/tamanho). Os anexos ganham ids opacos: o navegador nunca vê caminhos.
 import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
-import { isAbsolute, join, normalize } from 'node:path';
+import { posix } from 'node:path';
 import { tr } from '../../shared/i18n';
 import type { DeliveryAttachment, DeliveryInfo, Provider, RecentSession, TerminalEntry } from '../../shared/types';
 import type { TerminalParser } from '../sources/terminal';
@@ -28,7 +28,7 @@ const MIN_TEXT = 30;
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply_patch']);
 /** Caminhos de arquivo de ver citados na resposta: em links markdown ou soltos. */
 const LINK_RE = /\]\(\s*<?([^)\s>]+?\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|mov|webm|html?))(?::\d+)?>?\s*\)/gi;
-const BARE_RE = /(?:^|[\s(`"'])(\/[^\s`"'()<>]+?\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|mov|webm|html?))(?=$|[\s`"'),.;:!?])/gim;
+const BARE_RE = /(?:^|[\s(`"'])((?:\/|[A-Za-z]:[\\/])[^\s`"'()<>]+?\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|mov|webm|html?))(?=$|[\s`"'),.;:!?])/gim;
 
 export interface SessionSource {
   path: string;
@@ -130,13 +130,21 @@ export function linkedFiles(text: string, project?: string): string[] {
     } catch {
       // fica como veio
     }
-    if (p.startsWith('file://')) p = p.slice(7);
-    if (/^[a-z]+:/i.test(p)) return;
-    if (!isAbsolute(p)) {
-      if (!project) return;
-      p = join(project, p);
+    if (p.startsWith('file://')) {
+      let file: URL;
+      try { file = new URL(p); } catch { return; }
+      if ((file.host && file.host !== 'localhost') || file.search || file.hash) return;
+      p = file.pathname;
+      if (/^\/[A-Za-z]:\//.test(p)) p = p.slice(1);
     }
-    p = normalize(p);
+    if (/^[a-z][a-z0-9+.-]*:/i.test(p) && !/^[a-z]:[\\/]/i.test(p)) return;
+    p = p.replace(/\\/g, '/');
+    if (/(^|\/)\.\.(\/|$)/.test(p)) return;
+    if (!p.startsWith('/') && !/^[A-Za-z]:\//.test(p)) {
+      if (!project) return;
+      p = posix.join(project.replace(/\\/g, '/'), p);
+    }
+    p = posix.normalize(p);
     if (!pathProblem(p)) out.add(p);
   };
   for (const m of text.matchAll(LINK_RE)) add(m[1]);

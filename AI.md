@@ -188,3 +188,9 @@ O formulário **URL do webhook acessível à Evolution** chama somente `POST /ev
 
 **Suíte geral nesta máquina Windows:** `npm test` executou 1.979 testes: 1.945 passaram, 20 falharam e 14 foram ignorados. As falhas se concentram em expectativas de caminhos/terminadores de linha Unix, bits de permissão `0600` não representados da mesma forma no NTFS, e dois tempos limite sob a carga da suíte completa. Nenhuma falha foi reportada em `server/hub`; sua rodada direcionada final passou com 94 testes e um ignorado. Checagem de tipos e build passaram após o último ajuste. A suíte geral ainda não está verde no Windows, então a aceitação global permanece aberta.
 
+## Atualização: anexos de entregas no Windows
+
+A suíte geral revelou que a validação de anexos aceitava somente caminhos começando por `/`. Isso descartava caminhos reais `C:\\...` no Windows e fazia três testes de entregas falharem. `server/deliveries/files.ts` agora valida caminhos de unidade local e converte separadores apenas para as verificações de segurança; nomes de arquivos secretos, segmentos `..` e caminhos UNC continuam recusados. `insideKnownFolder` compara raízes e projetos conhecidos com o formato adequado ao sistema e recusa travessia antes de qualquer comparação. `server/deliveries/deliveries.ts` reconhece links Markdown e `file:///C:/...`, mas recusa `file://` com servidor remoto. Um teste novo abre um PDF real em pasta temporária usando o caminho nativo do Windows.
+
+**Verificação:** os testes direcionados de `server/deliveries` e `server/hub` passaram juntos: 108 aprovados e um ignorado. Antes da correção, foram observadas seis falhas no módulo de entregas (três existentes no Windows e três verificações novas). Checagem de tipos e build passaram. A suíte geral não foi repetida após esta alteração; as outras falhas Windows continuam abertas e não há alegação de que tenham desaparecido.
+
