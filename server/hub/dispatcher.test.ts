@@ -24,6 +24,7 @@ it('queues one real Codex instruction and records only delivery', async () => {
   await dispatchNext(store, async (job) => { sent.push(job.text); return { ok: true }; });
   expect(sent).toEqual(['Primeira']);
   expect(store.listTasks().find((t) => t.id === first.id)?.status).toBe('sent');
+  expect(store.listTasks().find((t) => t.id === first.id)?.codexAttemptThread).toBe(agent.codexThread);
   expect(store.listTasks().find((t) => t.id === second.id)?.status).toBe('queued');
 });
 

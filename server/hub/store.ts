@@ -30,6 +30,7 @@ export interface HubTask {
   executionModel?: string;
   localRetryCount?: number;
   nextAttemptAt?: string;
+  codexAttemptThread?: string;
 }
 export interface HubQuestion {
   id: string;
@@ -157,6 +158,17 @@ export class HubStore {
     return structuredClone(task);
   }
 
+  beginCodexDispatch(id: string, thread: string): HubTask {
+    const task = this.state.tasks.find((item) => item.id === id);
+    if (!task || !['queued', 'unassigned'].includes(task.status)) throw new Error('Tarefa não está na fila');
+    if (!THREAD_ID.test(thread)) throw new Error('ID da sessão Codex inválido');
+    task.status = 'dispatching';
+    task.codexAttemptThread = thread;
+    task.updatedAt = new Date().toISOString();
+    delete task.error; delete task.nextAttemptAt;
+    this.save(); return structuredClone(task);
+  }
+
   scheduleLocalRetry(id: string, error: string, now = Date.now(), label: 'Ollama' | 'Ação' = 'Ollama'): HubTask {
     const task = this.state.tasks.find((item) => item.id === id);
     if (!task || task.status !== 'dispatching') throw new Error('Tarefa não está em execução local');
@@ -212,21 +224,42 @@ export class HubStore {
     this.save(); return structuredClone(task);
   }
 
-  updateAgent(id: string, changes: { name?: string; objective?: string; modelId?: string | null }): HubAgent {
+  updateAgent(id: string, changes: { name?: string; objective?: string; modelId?: string | null; codexThread?: string | null; codexHome?: string | null }): HubAgent {
     const agent = this.state.agents.find((a) => a.id === id);
     if (!agent) throw new Error('Agente não encontrado');
     if (agent.status === 'ended') throw new Error('Agente encerrado não pode ser editado');
     const name = changes.name === undefined ? undefined : required(changes.name, 'nome', 100);
     const objective = changes.objective === undefined ? undefined : required(changes.objective, 'objetivo', 2000);
+    const linkChange = changes.codexThread !== undefined || changes.codexHome !== undefined;
+    if (linkChange && (changes.codexThread === undefined || changes.codexHome === undefined ||
+      (changes.codexThread === null) !== (changes.codexHome === null))) throw new Error('Sessão e pasta Codex devem ser alteradas juntas');
+    const nextThread = linkChange ? changes.codexThread ?? undefined : agent.codexThread;
+    const nextHome = linkChange ? changes.codexHome ?? undefined : agent.codexHome;
+    if (nextThread !== undefined && !THREAD_ID.test(nextThread)) throw new Error('ID da sessão Codex inválido');
+    if (nextHome !== undefined) required(nextHome, 'pasta Codex', 2048);
+    const nextModel = changes.modelId === undefined ? agent.modelId : changes.modelId ?? undefined;
     if (changes.modelId !== undefined && changes.modelId !== null) {
       if (!THREAD_ID.test(changes.modelId)) throw new Error('ID do modelo inválido');
-      if (agent.codexThread) throw new Error('Agente com sessão Codex usa Ollama como fallback');
     }
+    if (nextThread && nextModel) throw new Error('Agente com sessão Codex usa Ollama como fallback; remova o modelo externo antes de vincular');
+    if (linkChange && (nextThread !== agent.codexThread || nextHome !== agent.codexHome) &&
+      this.state.tasks.some((task) => task.agentId === id && task.status === 'dispatching')) throw new Error('Aguarde a tarefa em andamento antes de alterar a sessão Codex');
     if (name !== undefined) agent.name = name;
     if (objective !== undefined) agent.objective = objective;
     if (changes.modelId !== undefined) {
       if (changes.modelId === null) delete agent.modelId;
       else agent.modelId = changes.modelId;
+    }
+    if (linkChange) {
+      if (nextThread) { agent.codexThread = nextThread; agent.codexHome = nextHome; }
+      else { delete agent.codexThread; delete agent.codexHome; }
+      const status = nextThread ? 'queued' : 'unassigned';
+      for (const task of this.state.tasks) if (task.agentId === id && ['queued', 'unassigned'].includes(task.status)) {
+        task.status = status; task.updatedAt = new Date().toISOString();
+      }
+      for (const question of this.state.questions ?? []) if (question.state === 'pending' &&
+        this.state.tasks.some((task) => task.id === question.taskId && task.agentId === id) &&
+        ['queued', 'unassigned'].includes(question.previousTaskStatus)) question.previousTaskStatus = status;
     }
     this.save(); return structuredClone(agent);
   }

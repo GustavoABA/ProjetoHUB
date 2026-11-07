@@ -1,4 +1,4 @@
-type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; modelId?: string; systemKey?: string; status?: 'active' | 'paused' | 'ended' };
+type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string; modelId?: string; systemKey?: string; status?: 'active' | 'paused' | 'ended' };
 type Task = { id: string; agentId: string; instruction: string; priority?: number; status: string; error?: string; result?: string; executionProvider?: string; executionModel?: string; localRetryCount?: number; nextAttemptAt?: string };
 type ExecutionStatus = { maxConcurrent: number; active: number };
 type Session = { name: string; sessionId: string; account: string; provider: string };
@@ -272,12 +272,28 @@ export function mountHubPanel(): void {
         const edit = document.createElement('form');
         const name = document.createElement('input'); name.value = agent.name; name.maxLength = 100; name.required = true; name.setAttribute('aria-label', 'Nome do agente');
         const objective = document.createElement('input'); objective.value = agent.objective; objective.maxLength = 2000; objective.required = true; objective.setAttribute('aria-label', 'Objetivo do agente');
-        const modelSelect = document.createElement('select'); modelSelect.setAttribute('aria-label', 'Modelo do agente'); modelSelect.disabled = Boolean(agent.codexThread);
+        const sessionSelect = document.createElement('select'); sessionSelect.setAttribute('aria-label', 'Sessão Codex do agente');
+        option(sessionSelect, '', 'Sem vínculo Codex');
+        for (const [index, choice] of choices.entries()) option(sessionSelect, String(index), `Codex · ${choice.thread.slice(0, 8)}`);
+        const linkedIndex = choices.findIndex((choice) => choice.thread === agent.codexThread && choice.home === agent.codexHome);
+        if (agent.codexThread && linkedIndex < 0) option(sessionSelect, 'current', `Sessão vinculada indisponível · ${agent.codexThread.slice(0, 8)}`);
+        sessionSelect.value = agent.codexThread ? linkedIndex < 0 ? 'current' : String(linkedIndex) : '';
+        const modelSelect = document.createElement('select'); modelSelect.setAttribute('aria-label', 'Modelo do agente');
         option(modelSelect, '', 'Ollama local automático');
         for (const model of router.models) option(modelSelect, model.id, `${model.provider} / ${model.model}${model.available ? '' : ' · indisponível'}`);
         modelSelect.value = agent.modelId ?? '';
-        const save = document.createElement('button'); save.textContent = 'Salvar'; edit.append(name, objective, modelSelect, save);
-        edit.onsubmit = (event) => { event.preventDefault(); void api(`/api/hub/agents/${agent.id}`, { name: name.value, objective: objective.value, ...(agent.codexThread ? {} : { modelId: modelSelect.value || null }) }, 'PATCH').then(refresh).catch(showError); };
+        const syncModel = () => { modelSelect.disabled = Boolean(sessionSelect.value); if (modelSelect.disabled) modelSelect.value = ''; };
+        sessionSelect.onchange = syncModel; syncModel();
+        const save = document.createElement('button'); save.textContent = 'Salvar'; edit.append(name, objective, sessionSelect, modelSelect, save);
+        edit.onsubmit = (event) => {
+          event.preventDefault();
+          const selection = sessionSelect.value;
+          const selected = selection && selection !== 'current' ? choices[Number(selection)] : undefined;
+          const link = selection === 'current' ? {} : selected
+            ? { codexThread: selected.thread, codexHome: selected.home, modelId: null }
+            : { codexThread: null, codexHome: null, modelId: modelSelect.value || null };
+          void api(`/api/hub/agents/${agent.id}`, { name: name.value, objective: objective.value, ...link }, 'PATCH').then(refresh).catch(showError);
+        };
         const toggle = document.createElement('button'); toggle.textContent = agent.status === 'paused' ? 'Retomar agente' : 'Pausar agente';
         toggle.onclick = () => void api(`/api/hub/agents/${agent.id}/status`, { status: agent.status === 'paused' ? 'active' : 'paused' }).then(refresh).catch(showError);
         const end = document.createElement('button'); end.textContent = 'Encerrar agente';

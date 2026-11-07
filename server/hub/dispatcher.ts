@@ -20,7 +20,7 @@ export async function dispatchNext(store: HubStore, runner: CodexQueueRunner, no
   if (!task) return undefined;
   const agent = store.agent(task.agentId);
   if (!agent?.codexThread || !agent.codexHome) return store.setTaskStatus(task.id, 'failed', 'Sessão Codex não configurada');
-  store.setTaskStatus(task.id, 'dispatching');
+  store.beginCodexDispatch(task.id, agent.codexThread);
   try {
     const result = await runner({ thread: agent.codexThread, codexHome: agent.codexHome, text: task.instruction });
     return result.ok ? store.setTaskStatus(task.id, 'sent') : store.setTaskStatus(task.id, 'failed', result.error);
@@ -41,7 +41,7 @@ export async function dispatchWithLocalFallback(store: HubStore, runner: CodexQu
   const agent = store.agent(task.agentId);
   if (!agent) return store.setTaskStatus(task.id, 'failed', 'Agente não encontrado');
   if (runner && agent.codexThread && agent.codexHome) {
-    store.setTaskStatus(task.id, 'dispatching');
+    store.beginCodexDispatch(task.id, agent.codexThread);
     try {
       const delivery = await runner({ thread: agent.codexThread, codexHome: agent.codexHome, text: task.instruction });
       if (delivery.ok) return store.setTaskStatus(task.id, 'sent');

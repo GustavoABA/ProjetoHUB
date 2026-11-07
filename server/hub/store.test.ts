@@ -61,6 +61,34 @@ it('persists a selected model for an agent without a Codex session and allows cl
     codexThread: '12345678-1234-1234-1234-123456789012', codexHome: 'C:/codex' })).toThrow('Codex');
 });
 
+it('links and unlinks an existing agent to Codex while preserving dispatch history', () => {
+  const path = fixture(); const store = new HubStore(path);
+  const agent = store.createAgent({ name: 'Pesquisador', objective: 'Vagas' });
+  const pending = store.createTask({ agentId: agent.id, instruction: 'Pesquisar' });
+  const thread = '12345678-1234-1234-1234-123456789012';
+  expect(store.updateAgent(agent.id, { codexThread: thread, codexHome: 'C:/codex' }).codexThread).toBe(thread);
+  expect(store.listTasks().find((task) => task.id === pending.id)?.status).toBe('queued');
+  store.beginCodexDispatch(pending.id, thread);
+  expect(() => store.updateAgent(agent.id, { codexThread: null, codexHome: null })).toThrow('andamento');
+  store.setTaskStatus(pending.id, 'sent');
+  expect(store.updateAgent(agent.id, { codexThread: null, codexHome: null }).codexThread).toBeUndefined();
+  const recovered = new HubStore(path);
+  expect(recovered.listTasks().find((task) => task.id === pending.id)).toMatchObject({ status: 'sent', codexAttemptThread: thread });
+  expect(recovered.agent(agent.id)?.codexThread).toBeUndefined();
+});
+
+it('rejects incomplete Codex links and concurrent external model selections atomically', () => {
+  const store = new HubStore(fixture());
+  const modelId = '12345678-1234-1234-1234-123456789013';
+  const agent = store.createAgent({ name: 'Analista', objective: 'Vagas', modelId });
+  const thread = '12345678-1234-1234-1234-123456789012';
+  expect(() => store.updateAgent(agent.id, { codexThread: thread })).toThrow();
+  expect(() => store.updateAgent(agent.id, { codexThread: thread, codexHome: 'C:/codex' })).toThrow('modelo');
+  expect(store.agent(agent.id)?.modelId).toBe(modelId);
+  expect(store.agent(agent.id)?.codexThread).toBeUndefined();
+  expect(store.updateAgent(agent.id, { modelId: null, codexThread: thread, codexHome: 'C:/codex' })).toMatchObject({ codexThread: thread, codexHome: 'C:/codex' });
+});
+
 it('does not resend a task whose dispatch may have happened before a crash', () => {
   const file = fixture();
   const store = new HubStore(file);

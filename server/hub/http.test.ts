@@ -66,6 +66,30 @@ it('assigns a configured model to an agent and rejects unknown model IDs', async
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 
+it('links and unlinks an existing agent through the local API', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-agent-codex-')); dirs.push(dir);
+  const store = new HubStore(join(dir, 'state.json'));
+  const agent = store.createAgent({ name: 'Pesquisador', objective: 'Pesquisar vagas' });
+  const task = store.createTask({ agentId: agent.id, instruction: 'assistant' });
+  const server = http.createServer((req, res) => handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), store));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const url = `http://127.0.0.1:${address.port}/api/hub/agents/${agent.id}`;
+    const patch = (body: unknown) => fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await patch({ codexThread: '00000000-0000-4000-8000-000000000001' })).status).toBe(400);
+    expect(store.agent(agent.id)?.codexThread).toBeUndefined();
+    const linked = await patch({ codexThread: '00000000-0000-4000-8000-000000000001', codexHome: 'C:/Codex' });
+    expect(linked.status).toBe(200);
+    expect((await linked.json()).codexHome).toBe('C:/Codex');
+    expect(store.listTasks().find((item) => item.id === task.id)?.status).toBe('queued');
+    const unlinked = await patch({ codexThread: null, codexHome: null });
+    expect(unlinked.status).toBe(200);
+    expect((await unlinked.json()).codexThread).toBeUndefined();
+    expect(store.listTasks().find((item) => item.id === task.id)?.status).toBe('unassigned');
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
 it('creates and changes priority through the local task API before dispatch', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'projecthub-priority-')); dirs.push(dir);
   const store = new HubStore(join(dir, 'state.json'));

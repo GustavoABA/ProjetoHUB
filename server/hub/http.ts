@@ -449,7 +449,9 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
       if (body.modelId !== undefined && body.modelId !== null && (!router || !router.status().models.some((model) => model.id === body.modelId))) throw new Error('Modelo selecionado não encontrado');
       sendJson(res, 200, store.updateAgent(agentAction[1], { ...(body.name !== undefined ? { name: string(body.name, 'nome') } : {}),
         ...(body.objective !== undefined ? { objective: string(body.objective, 'objetivo') } : {}),
-        ...(body.modelId === undefined ? {} : { modelId: body.modelId === null ? null : string(body.modelId, 'modelo') }) }));
+        ...(body.modelId === undefined ? {} : { modelId: body.modelId === null ? null : string(body.modelId, 'modelo') }),
+        ...(body.codexThread === undefined ? {} : { codexThread: body.codexThread === null ? null : string(body.codexThread, 'sessão Codex') }),
+        ...(body.codexHome === undefined ? {} : { codexHome: body.codexHome === null ? null : string(body.codexHome, 'pasta Codex') }) }));
     }).catch((error) => fail(res, error));
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
