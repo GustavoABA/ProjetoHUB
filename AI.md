@@ -322,3 +322,5 @@ O roteador permite configurar no HUD e na API um limite mensal de tentativas por
 
 **Verificação desta atualização:** testes de módulo cobrem limite persistente, fallback autorizado, bloqueio após custo estimado, suspensão após resposta sem contagem de tokens, edição inválida sem mutação e reserva concorrente. A API local foi testada para cadastrar, alterar, consultar e rejeitar um limite inválido. `npm test` passou com 2.028 testes aprovados e 18 ignorados em 190 arquivos; checagem de tipos e build passaram. Os retornos dos provedores foram simulados; o HUD ainda não foi inspecionado visualmente nesta rodada.
 
+**Reteste local Codex → Ollama:** o serviço Ollama desta máquina respondeu na porta 11434. O teste optativo `PROJECTHUB_OLLAMA_E2E=1 npx vitest run server/hub/codex-ollama.integration.test.ts` passou com uma geração real no modelo local e persistiu o resultado como `result_ready`, identificado com provedor `ollama`. A resposta de indisponibilidade do Codex nesse teste é simulada; uma sessão Codex real não foi desligada nem recebeu instrução.
+
