@@ -15,6 +15,7 @@ import { WhatsAppStore } from './whatsapp';
 import { BackupManager } from './backup';
 import { WindowsStartupManager } from './windows-startup';
 import { EvolutionSettings } from './evolution-settings';
+import { WebhookListener } from './webhook-listener';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -135,26 +136,29 @@ it('configures the dedicated Evolution webhook only after listener and numbers a
     return new Response('{}', { status: 201 });
   }) as typeof fetch;
   const hub = new HubStore(join(dir, 'state.json'));
+  const listener = new WebhookListener(join(dir, 'listener.json'), whatsapp, hub, {});
   const server = http.createServer((req, res) => handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), hub,
     undefined, fetcher, undefined, undefined, undefined, undefined, whatsapp,
-    undefined, undefined, undefined, undefined, undefined, undefined, evolution));
+    undefined, undefined, undefined, undefined, undefined, undefined, evolution, listener));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const previousPort = process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT;
   try {
     const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
     const url = `http://127.0.0.1:${address.port}/api/hub/whatsapp/webhook`;
-    const body = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'http://host.docker.internal:4770/webhook/evolution' }) };
+    const listenerPort = address.port + 1;
+    const body = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: `http://host.docker.internal:${listenerPort}/webhook/evolution` }) };
     expect((await fetch(url, body)).status).toBe(409);
     whatsapp.configure({ mainNumber: '5511999999999', secondaryNumber: '5511888888888' });
     expect((await fetch(url, body)).status).toBe(409);
-    process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT = '4770';
+    const enabled = await fetch(`http://127.0.0.1:${address.port}/api/hub/whatsapp/listener`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true, port: listenerPort, exposeLan: false }) });
+    expect(enabled.status).toBe(200);
+    expect(await enabled.json()).toMatchObject({ enabled: true, running: true, port: listenerPort });
     const configured = await fetch(url, body);
     expect(configured.status).toBe(200);
     expect(await configured.json()).toEqual({ instance: 'procura-de-emprego', configured: true });
     expect(requests).toEqual(['http://127.0.0.1:8080/event/webhook/set/procura-de-emprego']);
   } finally {
-    if (previousPort === undefined) delete process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT;
-    else process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT = previousPort;
+    await listener.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });

@@ -67,7 +67,7 @@ import { ModelRouter } from './hub/router';
 import { ApplicationStore } from './hub/applications';
 import { ProfileStore } from './hub/profile';
 import { WhatsAppStore } from './hub/whatsapp';
-import { handleWhatsAppWebhook } from './hub/whatsapp-http';
+import { WebhookListener } from './hub/webhook-listener';
 import { AdminKeyStore, startMcpServer } from './hub/mcp';
 import { NgrokManager } from './hub/ngrok';
 import { ConnectionSession } from './hub/connection-session';
@@ -103,6 +103,9 @@ const applicationStore = new ApplicationStore(join(config.dataDir, 'projecthub',
 const profileStore = new ProfileStore(join(config.dataDir, 'projecthub', 'profile.json'));
 const whatsAppStore = new WhatsAppStore(join(config.dataDir, 'projecthub', 'whatsapp.json'));
 const evolutionSettings = new EvolutionSettings(join(config.dataDir, 'projecthub', 'evolution-settings.json'));
+const mcpPort = Number(process.env.PROJECTHUB_MCP_PORT ?? 4748);
+const webhookListener = new WebhookListener(join(config.dataDir, 'projecthub', 'webhook-listener.json'), whatsAppStore, projectHub,
+  process.env, [config.port, ...(Number.isSafeInteger(mcpPort) ? [mcpPort] : [])]);
 const mcpKeys = new AdminKeyStore(join(config.dataDir, 'projecthub', 'mcp-admin.json'));
 const connectionSession = new ConnectionSession(join(config.dataDir, 'projecthub', 'connection-session.json'));
 const connectionPublisher = new ConnectionPublisher(process.env.PROJECTHUB_GITHUB_TOKEN);
@@ -491,7 +494,7 @@ server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
-    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher, backupManager, windowsStartup, evolutionSettings) && !api(req, res, url)) fallback(req, res, url);
+    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher, backupManager, windowsStartup, evolutionSettings, webhookListener) && !api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(tr('Erro ao responder {0} {1}: {2}', [req.method, url.pathname, errMsg(err)]));
     if (!res.headersSent) sendJson(res, 500, { error: tr('erro interno') });
@@ -505,8 +508,6 @@ server.on('error', (err: NodeJS.ErrnoException) => {
   process.exit(1);
 });
 
-const webhookPort = Number(process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT ?? 0);
-const mcpPort = Number(process.env.PROJECTHUB_MCP_PORT ?? 4748);
 let mcpServer: http.Server | undefined;
 if (Number.isInteger(mcpPort) && mcpPort > 0 && mcpPort <= 65_535 && mcpPort !== config.port) {
   const publicHost = process.env.PROJECTHUB_MCP_PUBLIC_HOST?.trim().toLowerCase();
@@ -530,13 +531,14 @@ if (Number.isInteger(mcpPort) && mcpPort > 0 && mcpPort <= 65_535 && mcpPort !==
     if (mcpKeys.configured() && !(connectionSession.status().expired && connectionSession.status().policy === 'close')) ngrokManager?.start();
   });
 } else log.warn('Porta MCP inválida ou igual à porta principal; MCP desativado.');
-let whatsAppWebhookServer: http.Server | undefined;
-if (Number.isInteger(webhookPort) && webhookPort > 0 && webhookPort <= 65_535) {
-  const webhookBind = process.env.PROJECTHUB_WHATSAPP_WEBHOOK_BIND === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1';
-  whatsAppWebhookServer = http.createServer((req, res) => handleWhatsAppWebhook(req, res, whatsAppStore, projectHub));
-  whatsAppWebhookServer.on('error', (error) => log.warn(`Webhook WhatsApp indisponível: ${errMsg(error)}`));
-  whatsAppWebhookServer.listen(webhookPort, webhookBind, () => log.info(`Webhook WhatsApp aguardando em ${webhookBind}:${webhookPort}; autenticação obrigatória.`));
-}
+void webhookListener.reconcile().then((status) => {
+  if (status.running) log.info(`Webhook WhatsApp aguardando em ${status.bind}:${status.port}; autenticação obrigatória.`);
+  else if (status.enabled) log.warn(`Webhook WhatsApp indisponível: ${status.error ?? 'listener não iniciou'}`);
+});
+const webhookListenerTimer = setInterval(() => {
+  if (webhookListener.status().enabled && !webhookListener.status().running)
+    void webhookListener.reconcile().catch((error) => log.warn(`Webhook WhatsApp indisponível: ${errMsg(error)}`));
+}, 30_000);
 
 /**
  * Porta remota (celular na rede local): o mesmo app, mas toda requisição passa pelo login (http/remote.ts) antes da
@@ -669,6 +671,7 @@ function shutdown(signal: string): void {
   clearInterval(jobSearchTimer);
   clearInterval(adminSessionTimer);
   clearInterval(connectionPublishTimer);
+  clearInterval(webhookListenerTimer);
   stats.stop();
   agents.stop();
   accounts.stop();
@@ -685,7 +688,7 @@ function shutdown(signal: string): void {
   names.flush();
   void closeVite?.();
   remoteListener?.close();
-  whatsAppWebhookServer?.close();
+  void webhookListener.close();
   mcpServer?.close();
   ngrokManager?.stop();
   void browserManager.stop().catch((error) => log.warn(tr('Falha ao fechar navegador: {0}', [errMsg(error)]))).finally(() => {

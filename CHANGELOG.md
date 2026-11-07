@@ -30,6 +30,7 @@ do meio (0.**3**.0).
 - URL e chave da Evolution API configuráveis pelo painel, com proteção da chave pela conta do Windows.
 - Criação guiada da instância exclusiva de emprego após verificar duplicatas, com QR de pareamento temporário no painel.
 - Configuração do webhook da instância de emprego pelo painel, com token de recebimento gerado internamente.
+- Porta de recebimento do WhatsApp configurável no painel, com estado real, recuperação após conflito e ajuste de acesso à rede local.
 
 ### Corrigido no ProjetoHUB
 

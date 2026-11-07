@@ -15,6 +15,7 @@ import type { ConnectionPublisher } from './connection-publisher';
 import type { BackupManager } from './backup';
 import type { WindowsStartupManager } from './windows-startup';
 import type { EvolutionSettings } from './evolution-settings';
+import type { WebhookListener } from './webhook-listener';
 import { configureJobWebhook, connectJobInstance, ensureJobInstance } from './evolution-instance';
 
 function record(value: unknown): Record<string, unknown> {
@@ -30,7 +31,7 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /** Routes are mounted only on the local server, after the normal Host/Origin guard. */
-export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore, ngrok?: NgrokManager, session?: ConnectionSession, publisher?: ConnectionPublisher, backups?: BackupManager, windowsStartup?: WindowsStartupManager, evolution?: EvolutionSettings): boolean {
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore, ngrok?: NgrokManager, session?: ConnectionSession, publisher?: ConnectionPublisher, backups?: BackupManager, windowsStartup?: WindowsStartupManager, evolution?: EvolutionSettings, webhookListener?: WebhookListener): boolean {
   const path = url.pathname;
   if (!path.startsWith('/api/hub/')) return false;
   const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
@@ -89,7 +90,7 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
   }
   if (path === '/api/hub/whatsapp') {
     if (!whatsapp) sendJson(res, 503, { error: 'WhatsApp indisponível' });
-    else if (req.method === 'GET') sendJson(res, 200, { ...whatsapp.status(), apiKeyConfigured: evolution?.status().apiKeyConfigured ?? Boolean(process.env.EVOLUTION_API_KEY), webhookPort: process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT || null });
+    else if (req.method === 'GET') sendJson(res, 200, { ...whatsapp.status(), apiKeyConfigured: evolution?.status().apiKeyConfigured ?? Boolean(process.env.EVOLUTION_API_KEY), webhookPort: webhookListener?.status().running ? String(webhookListener.status().port) : null });
     else if (req.method === 'PUT') void readJson(req).then((raw) => {
       const body = record(raw);
       sendJson(res, 200, whatsapp.configure({ mainNumber: string(body.mainNumber, 'número principal'), secondaryNumber: string(body.secondaryNumber, 'número secundário') }));
@@ -104,6 +105,16 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
       const body = record(raw);
       return evolution.configure({ ...(body.baseUrl !== undefined ? { baseUrl: string(body.baseUrl, 'URL') } : {}),
         ...(body.apiKey !== undefined ? { apiKey: string(body.apiKey, 'chave') } : {}) });
+    }).then((result) => sendJson(res, 200, result)).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  if (path === '/api/hub/whatsapp/listener') {
+    if (!webhookListener) sendJson(res, 503, { error: 'Listener WhatsApp indisponível' });
+    else if (req.method === 'GET') sendJson(res, 200, webhookListener.status());
+    else if (req.method === 'PUT') void readJson(req).then((raw) => {
+      const body = record(raw);
+      return webhookListener.configure({ enabled: body.enabled as boolean, port: body.port as number, exposeLan: body.exposeLan as boolean });
     }).then((result) => sendJson(res, 200, result)).catch((error) => fail(res, error));
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
@@ -141,8 +152,8 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     else if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
     else if (!whatsapp.status().mainNumber || !whatsapp.status().secondaryNumber) {
       req.resume(); sendJson(res, 409, { error: 'Configure primeiro os números principal e secundário' });
-    } else if (!Number.isInteger(Number(process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT)) || Number(process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT) < 1 || Number(process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT) > 65_535) {
-      req.resume(); sendJson(res, 409, { error: 'Ative a porta do listener do webhook antes de configurar a Evolution' });
+    } else if (!webhookListener?.status().running) {
+      req.resume(); sendJson(res, 409, { error: 'Ative o listener do webhook no painel antes de configurar a Evolution' });
     } else void readJson(req).then(async (raw) => {
       const destination = string(record(raw).url, 'URL do webhook');
       const apiKey = await evolution.apiKey();
