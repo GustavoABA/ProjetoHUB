@@ -6,6 +6,8 @@ import { HubStore } from './store';
 import { WhatsAppStore } from './whatsapp';
 import { dispatchWithLocalFallback } from './dispatcher';
 import { reconcileQuestionTasks, runCommunicationAction } from './communication-actions';
+import { JobStore } from './jobs';
+import { ApplicationStore } from './applications';
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -75,4 +77,75 @@ it('does not send a question answered before the communicator task executes', as
   const task = hub.listTasks().find((item) => item.agentId === communicator.id)!;
   expect(await runCommunicationAction(task, communicator, { hub, whatsapp, apiKey: async () => 'test-key', fetcher: send })).toContain('já respondida');
   expect(send).not.toHaveBeenCalled();
+});
+
+it('persists new vacancy and application events, delegates each once, and does not replay history', async () => {
+  const { dir, hub, whatsapp, communicator } = fixture();
+  const jobs = new JobStore(join(dir, 'jobs.json'));
+  const applications = new ApplicationStore(join(dir, 'applications.json'));
+  whatsapp.reconcileEvents(jobs.list(), applications.list());
+  expect(whatsapp.status().notifications).toEqual([]);
+  jobs.addListings([{ id: 'job-1', source: 'Remotive', sourceId: '1', company: 'Acme', title: 'Assistente', location: 'Remoto', mode: 'remote',
+    description: 'Vaga real da fonte', requirements: [], originalUrl: 'https://remotive.com/remote-jobs/test', discoveredAt: new Date().toISOString(),
+    compatibility: null, justification: 'Pendente', applicationStatus: 'not_started' }]);
+  const application = applications.create({ jobId: 'job-1', source: 'Remotive', sourceId: '1',
+    originalUrl: 'https://remotive.com/remote-jobs/test', title: 'Assistente', company: 'Acme' });
+  whatsapp.reconcileEvents(jobs.list(), applications.list());
+  expect(whatsapp.status().notifications.map((item) => item.type)).toEqual(['job_found', 'application_started']);
+  expect(reconcileQuestionTasks(hub, whatsapp, true)).toBe(3);
+  expect(reconcileQuestionTasks(hub, whatsapp, true)).toBe(0);
+  const send = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ key: { id: 'WA-002' } }), { status: 200 }));
+  whatsapp.configure({ mainNumber: '5511999999999', secondaryNumber: '5511888888888' });
+  for (const task of hub.listTasks().filter((item) => item.agentId === communicator.id && item.instruction.startsWith('notification:')))
+    await runCommunicationAction(task, communicator, { hub, whatsapp, apiKey: async () => 'test-key', fetcher: send });
+  expect(send).toHaveBeenCalledTimes(2);
+  expect(whatsapp.status().notifications.every((item) => item.state === 'accepted')).toBe(true);
+  expect(whatsapp.status().notifications[0].text).toContain('https://remotive.com/remote-jobs/test');
+  const restored = new WhatsAppStore(join(dir, 'whatsapp.json'));
+  restored.reconcileEvents(jobs.list(), applications.list());
+  expect(restored.status().notifications).toHaveLength(2);
+  expect(restored.status().notifications[1].text).toContain(application.id);
+});
+
+it('keeps an uncertain event send after restart without retrying it', async () => {
+  const { dir, hub, whatsapp, communicator } = fixture();
+  const jobs = new JobStore(join(dir, 'jobs.json'));
+  const applications = new ApplicationStore(join(dir, 'applications.json'));
+  whatsapp.reconcileEvents([], []);
+  const application = applications.create({ jobId: 'job-2', source: 'Remotive', sourceId: '2',
+    originalUrl: 'https://remotive.com/remote-jobs/test2', title: 'Auxiliar', company: 'Exemplo' });
+  whatsapp.reconcileEvents(jobs.list(), applications.list());
+  whatsapp.configure({ mainNumber: '5511999999999', secondaryNumber: '5511888888888' });
+  reconcileQuestionTasks(hub, whatsapp, true);
+  const task = hub.listTasks().find((item) => item.agentId === communicator.id && item.instruction.startsWith('notification:'))!;
+  const send = vi.fn<typeof fetch>().mockRejectedValue(new Error('timeout'));
+  await expect(runCommunicationAction(task, communicator, { hub, whatsapp, apiKey: async () => 'test-key', fetcher: send })).rejects.toThrow('incerto');
+  const restored = new WhatsAppStore(join(dir, 'whatsapp.json'));
+  expect(restored.status().notifications[0]).toMatchObject({ type: 'application_started', state: 'uncertain' });
+  await expect(runCommunicationAction(task, communicator, { hub, whatsapp: restored, apiKey: async () => 'test-key', fetcher: send })).rejects.toThrow('incerto');
+  expect(send).toHaveBeenCalledOnce();
+  expect(application.status).toBe('draft');
+});
+
+it('notifies approval and submission only after the persisted application transition', () => {
+  const { dir, whatsapp } = fixture();
+  const applications = new ApplicationStore(join(dir, 'applications.json'));
+  whatsapp.reconcileEvents([], []);
+  const app = applications.create({ jobId: 'job-3', source: 'Remotive', sourceId: '3',
+    originalUrl: 'https://remotive.com/remote-jobs/test3', title: 'Analista', company: 'Empresa' });
+  whatsapp.reconcileEvents([], applications.list());
+  expect(whatsapp.status().notifications.map((item) => item.type)).toEqual(['application_started']);
+  applications.setAnswers(app.id, { Disponibilidade: 'Imediata' });
+  applications.requestApproval(app.id);
+  whatsapp.reconcileEvents([], applications.list());
+  expect(whatsapp.status().notifications.map((item) => item.type)).toEqual(['application_started', 'approval_needed']);
+  applications.approve(app.id);
+  applications.startSubmission(app.id, 'https://remotive.com/remote-jobs/test3');
+  whatsapp.reconcileEvents([], applications.list());
+  expect(whatsapp.status().notifications.at(-1)?.type).toBe('submission_started');
+  expect(whatsapp.status().notifications.some((item) => item.type === 'application_submitted')).toBe(false);
+  applications.confirmSubmission(app.id, { url: 'https://remotive.com/remote-jobs/test3', confirmationText: 'Recebido',
+    screenshot: Buffer.from('89504e470d0a1a0a', 'hex') });
+  whatsapp.reconcileEvents([], applications.list());
+  expect(whatsapp.status().notifications.at(-1)?.type).toBe('application_submitted');
 });

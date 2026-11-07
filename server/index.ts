@@ -127,8 +127,12 @@ const whatsappReady = () => {
   return Boolean(status.mainNumber && status.secondaryNumber && status.webhookTokenConfigured &&
     evolutionSettings.status().apiKeyConfigured && webhookListener.status().running);
 };
-const reconcileCommunication = () => { try { reconcileQuestionTasks(projectHub, whatsAppStore, whatsappReady()); }
+const reconcileCommunication = () => { try {
+  whatsAppStore.reconcileEvents(jobStore.list(), applicationStore.list());
+  reconcileQuestionTasks(projectHub, whatsAppStore, whatsappReady());
+}
   catch (error) { log.warn(`Falha ao delegar comunicação WhatsApp: ${errMsg(error)}`); } };
+reconcileCommunication();
 const mcpKeys = new AdminKeyStore(join(config.dataDir, 'projecthub', 'mcp-admin.json'));
 const connectionSession = new ConnectionSession(join(config.dataDir, 'projecthub', 'connection-session.json'));
 const connectionPublisher = new ConnectionPublisher(process.env.PROJECTHUB_GITHUB_TOKEN);

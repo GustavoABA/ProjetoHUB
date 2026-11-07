@@ -2,13 +2,16 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { HubStore } from './store';
+import type { JobListing } from './jobs';
+import type { Application } from './applications';
 
 const INSTANCE = 'procura-de-emprego';
 const DEFAULT_EVOLUTION_URL = 'http://127.0.0.1:8080';
 type OutboundState = 'sending' | 'accepted' | 'uncertain' | 'failed';
 export interface OutboundMessage { id: string; questionId: string; text: string; state: OutboundState; createdAt: string; updatedAt: string; providerMessageId?: string; error?: string }
+export interface EventNotification { id: string; eventKey: string; type: 'job_found' | 'application_started' | 'approval_needed' | 'submission_started' | 'application_submitted' | 'submission_uncertain'; text: string; state: 'pending' | OutboundState; createdAt: string; updatedAt: string; providerMessageId?: string; error?: string }
 interface InboundMessage { id: string; questionId: string; receivedAt: string }
-interface State { version: 1; instance: typeof INSTANCE; mainNumber?: string; secondaryNumber?: string; webhookTokenHash?: string; inbound: InboundMessage[]; outbound: OutboundMessage[] }
+interface State { version: 1; instance: typeof INSTANCE; mainNumber?: string; secondaryNumber?: string; webhookTokenHash?: string; inbound: InboundMessage[]; outbound: OutboundMessage[]; observedEvents?: string[]; notifications?: EventNotification[] }
 function number(value: string): string {
   if (typeof value !== 'string' || !/^\d{10,15}$/.test(value)) throw new Error('Número deve conter DDI, DDD e número, somente dígitos');
   return value;
@@ -25,11 +28,68 @@ export class WhatsAppStore {
       if (!parsed || typeof parsed !== 'object' || (parsed as State).version !== 1 || (parsed as State).instance !== INSTANCE || !Array.isArray((parsed as State).inbound) || !Array.isArray((parsed as State).outbound)) throw new Error('Estado WhatsApp incompatível ou corrompido');
       this.state = parsed as State;
       for (const item of this.state.outbound) if (item.state === 'sending') { item.state = 'uncertain'; item.updatedAt = new Date().toISOString(); }
+      for (const item of this.state.notifications ?? []) if (item.state === 'sending') { item.state = 'uncertain'; item.updatedAt = new Date().toISOString(); }
       this.save();
     } else this.state = { version: 1, instance: INSTANCE, inbound: [], outbound: [] };
   }
   status() { return { instance: INSTANCE, mainNumber: this.state.mainNumber, secondaryNumber: this.state.secondaryNumber,
-    webhookTokenConfigured: Boolean(this.state.webhookTokenHash), inboundCount: this.state.inbound.length, outbound: structuredClone(this.state.outbound) }; }
+    webhookTokenConfigured: Boolean(this.state.webhookTokenHash), inboundCount: this.state.inbound.length, outbound: structuredClone(this.state.outbound),
+    notifications: structuredClone(this.state.notifications ?? []) }; }
+  /** First reconciliation establishes a baseline so an upgrade cannot send historical vacancies. */
+  reconcileEvents(jobs: JobListing[], applications: Application[]): number {
+    const events: { key: string; type: EventNotification['type']; text: string }[] = [];
+    for (const job of jobs) events.push({ key: `job:${job.source}:${job.sourceId}`, type: 'job_found',
+      text: `ProjetoHUB — nova vaga encontrada\n${job.title.slice(0, 300)} · ${job.company.slice(0, 300)}\n${job.location.slice(0, 300)}\nFonte: ${job.source}\n${job.originalUrl}` });
+    const actions: Partial<Record<Application['history'][number]['action'], EventNotification['type']>> = {
+      created: 'application_started', approval_requested: 'approval_needed', submission_started: 'submission_started',
+      submitted: 'application_submitted', submission_uncertain: 'submission_uncertain',
+    };
+    for (const app of applications) for (let index = 0; index < app.history.length; index++) {
+      const action = app.history[index].action, type = actions[action];
+      if (!type) continue;
+      const label = { application_started: 'Rascunho de candidatura criado', approval_needed: 'Candidatura precisa de aprovação',
+        submission_started: 'Envio de candidatura iniciado', application_submitted: 'Candidatura confirmada como enviada',
+        submission_uncertain: 'Resultado do envio da candidatura incerto', job_found: 'Nova vaga' }[type];
+      events.push({ key: `application:${app.id}:${index}`, type,
+        text: `ProjetoHUB — ${label}\n${app.title.slice(0, 300)} · ${app.company.slice(0, 300)}\nCandidatura: ${app.id}\n${app.originalUrl}` });
+    }
+    if (!this.state.observedEvents) {
+      this.state.observedEvents = events.map((item) => item.key); this.state.notifications ??= []; this.save(); return 0;
+    }
+    const observed = new Set(this.state.observedEvents);
+    let added = 0;
+    for (const event of events) {
+      if (observed.has(event.key)) continue;
+      observed.add(event.key); this.state.observedEvents.push(event.key);
+      const now = new Date().toISOString();
+      this.state.notifications ??= [];
+      this.state.notifications.push({ id: randomUUID(), eventKey: event.key, type: event.type, text: event.text,
+        state: 'pending', createdAt: now, updatedAt: now });
+      added++;
+    }
+    if (added) this.save();
+    return added;
+  }
+  async sendNotification(id: string, apiKey: string, fetcher: typeof fetch = fetch, baseUrl = DEFAULT_EVOLUTION_URL): Promise<EventNotification> {
+    const notification = this.state.notifications?.find((item) => item.id === id);
+    if (!notification) throw new Error('Aviso WhatsApp não encontrado');
+    if (notification.state !== 'pending') return structuredClone(notification);
+    if (!this.state.mainNumber || !this.state.secondaryNumber) throw new Error('Configure os números principal e secundário');
+    if (!apiKey) throw new Error('Chave da Evolution API não configurada');
+    notification.state = 'sending'; notification.updatedAt = new Date().toISOString(); this.save();
+    try {
+      const response = await fetcher(`${baseUrl}/message/sendText/${INSTANCE}`, { method: 'POST',
+        headers: { apikey: apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: this.state.mainNumber, text: notification.text }), signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) { notification.state = response.status >= 500 ? 'uncertain' : 'failed'; notification.error = `Evolution HTTP ${response.status}`; }
+      else {
+        const body = object(await response.json()), key = object(body?.key);
+        if (typeof key?.id === 'string' && key.id) { notification.state = 'accepted'; notification.providerMessageId = key.id; }
+        else { notification.state = 'uncertain'; notification.error = 'Evolution respondeu sem identificador de mensagem'; }
+      }
+    } catch { notification.state = 'uncertain'; notification.error = 'Resposta da Evolution não confirmada'; }
+    notification.updatedAt = new Date().toISOString(); this.save(); return structuredClone(notification);
+  }
   configure(input: { mainNumber: string; secondaryNumber: string }) {
     const mainNumber = number(input.mainNumber), secondaryNumber = number(input.secondaryNumber);
     if (mainNumber === secondaryNumber) throw new Error('Número principal e secundário devem ser diferentes');

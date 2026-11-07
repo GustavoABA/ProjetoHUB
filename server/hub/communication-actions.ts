@@ -22,12 +22,30 @@ export function reconcileQuestionTasks(hub: HubStore, whatsapp: WhatsAppStore, r
     hub.createTask({ agentId: communicator.id, instruction: question.id, priority: 4 });
     assigned.add(question.id); created++;
   }
+  const notifications = whatsapp.status().notifications;
+  for (const notification of notifications) {
+    const instruction = `notification:${notification.id}`;
+    if (notification.state !== 'pending' || assigned.has(instruction)) continue;
+    hub.createTask({ agentId: communicator.id, instruction, priority: notification.type === 'approval_needed' ? 4 : 2 });
+    assigned.add(instruction); created++;
+  }
   return created;
 }
 
 /** Accepted by Evolution is recorded as delivery to the API, never as phone delivery. */
 export async function runCommunicationAction(task: HubTask, agent: HubAgent, deps: CommunicationDeps): Promise<string | undefined> {
   if (agent.systemKey !== 'job-search/whatsapp') return undefined;
+  if (task.instruction.startsWith('notification:')) {
+    const notification = deps.whatsapp.status().notifications.find((item) => `notification:${item.id}` === task.instruction);
+    if (!notification) throw new Error('Aviso WhatsApp não encontrado');
+    if (notification.state === 'accepted') return 'Aviso já aceito pela Evolution; entrega ao telefone não confirmada.';
+    if (notification.state === 'uncertain' || notification.state === 'sending') throw new Error('Resultado do envio WhatsApp incerto; confira a Evolution antes de outra tentativa');
+    if (notification.state === 'failed') throw new Error(`Envio WhatsApp falhou: ${notification.error ?? 'verifique a Evolution'}`);
+    const sent = await deps.whatsapp.sendNotification(notification.id, await deps.apiKey(), deps.fetcher, deps.baseUrl);
+    if (sent.state === 'accepted') return 'Aviso aceito pela Evolution; entrega ao telefone não confirmada.';
+    if (sent.state === 'uncertain' || sent.state === 'sending') throw new Error('Resultado do envio WhatsApp incerto; confira a Evolution antes de outra tentativa');
+    throw new Error(`Envio WhatsApp falhou: ${sent.error ?? 'verifique a Evolution'}`);
+  }
   const question = deps.hub.listQuestions().find((item) => item.id === task.instruction);
   if (!question) throw new Error('Pergunta não encontrada para comunicação');
   if (question.state !== 'pending') return 'Pergunta já respondida ou cancelada; nenhum envio foi iniciado.';

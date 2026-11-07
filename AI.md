@@ -342,3 +342,11 @@ O HUD permite configurar cargo, localidade, modalidades, nível de experiência,
 
 **Inspeção visual posterior:** o cliente Vite foi aberto no Microsoft Edge em 1366×768. Após fechar o aviso inicial do Habblaud World, o HUD abriu; os nove campos de preferências estavam presentes, o campo de cargo aceitou texto e a grade ajustada foi inspecionada em captura de tela. O cliente isolado não tinha API do ProjetoHUB atrás dele, portanto essa inspeção não valida o envio do formulário nem a persistência; esses caminhos foram verificados pelos testes de API acima.
 
+## Atualização: avisos persistentes de vagas e candidaturas
+
+O serviço agora observa vagas salvas e transições do histórico de candidaturas, gera avisos identificados de forma estável e os delega ao Comunicador WhatsApp. O primeiro início com esta versão registra o estado existente como referência, evitando envio em massa de vagas antigas. Novos avisos permanecem pendentes enquanto o canal não estiver configurado. O HUD mostra os 20 avisos mais recentes e distingue pendente, aceito pela Evolution, falha e resultado incerto. Em reinício durante o envio, o estado passa a incerto para evitar duplicatas. Um aviso de candidatura concluída só nasce após `confirmSubmission` persistir evidência e status `submitted`; o início do envio tem aviso próprio.
+
+**Limites:** não houve envio real porque o usuário optou por preencher os números no HUD depois. A aceitação pela Evolution não comprova entrega no telefone. A fila de eventos e os IDs observados crescem com o histórico; retenção e reenvio manual supervisionado ainda não foram implementados. Notificações de erros gerais e resumo periódico ainda não existem. WebSocket da Evolution continua não verificado nesta instalação; a recepção de respostas usa webhook autenticado.
+
+**Verificação desta atualização:** 12 testes direcionados de comunicação/WhatsApp passaram. `npm test` passou com 2.042 testes aprovados e 18 ignorados em 191 arquivos; checagem de tipos e build passaram. Os envios usaram respostas simuladas da Evolution. O teste cobre deduplicação, persistência, resultado incerto após reinício, coexistência com pergunta pendente e sequência de rascunho → aprovação necessária → envio iniciado → confirmação. O HUD atualizado ainda não foi inspecionado visualmente nesta rodada.
+
