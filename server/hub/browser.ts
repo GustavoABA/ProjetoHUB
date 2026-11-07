@@ -24,6 +24,7 @@ interface ContextLike {
   on?(event: 'close', listener: () => void): void;
 }
 type Launch = (profileDir: string, options: { headless: boolean; channel: string }) => Promise<ContextLike>;
+export interface FormField { label: string; kind: 'text' | 'select' | 'checkbox' | 'file' | 'password' | 'other'; required: boolean; fillable: boolean }
 
 function webUrl(raw: string): string {
   let url: URL;
@@ -140,6 +141,29 @@ export class BrowserManager {
       this.record('fill', page.url());
     }
     return { filled, missing };
+  }
+
+  /** Inspect visible controls only; values and passwords never leave the page. */
+  async inspectFormFields(id: string): Promise<FormField[]> {
+    const page = this.page(id); this.ready();
+    const locator = page.locator('input, textarea, select') as unknown as {
+      evaluateAll(fn: (elements: any[]) => FormField[]): Promise<FormField[]>
+    };
+    const fields = await locator.evaluateAll((elements) => elements.filter((element) =>
+      !element.disabled && element.getClientRects().length > 0 && !element.closest('[aria-hidden="true"]') &&
+      element.type !== 'hidden' && element.type !== 'submit' && element.type !== 'button').slice(0, 100).map((element) => {
+      const rawLabel = Array.from(element.labels ?? []).map((item: any) => item.textContent ?? '').join(' ').trim() ||
+        element.getAttribute('aria-label') || '';
+      const label = String(rawLabel).replace(/\s+/g, ' ').trim().slice(0, 200);
+      const type = String(element.type ?? '').toLowerCase();
+      const kind: FormField['kind'] = type === 'password' ? 'password' : type === 'file' ? 'file' :
+        type === 'checkbox' || type === 'radio' ? 'checkbox' : element.tagName === 'SELECT' ? 'select' :
+          element.tagName === 'TEXTAREA' || ['text', 'email', 'tel', 'url', 'number', 'search'].includes(type) ? 'text' : 'other';
+      return { label, kind, required: Boolean(element.required || element.getAttribute('aria-required') === 'true'),
+        fillable: kind === 'text' && Boolean(label) };
+    }));
+    this.record('inspect_form', page.url());
+    return fields;
   }
 
   private async submitLocators(page: PageLike, submit: LocatorLike, confirmation: LocatorLike): Promise<{ url: string; confirmationText: string; screenshot: Buffer }> {

@@ -5,6 +5,7 @@ import { searchRemotive, type JobStore } from './jobs';
 import type { BrowserManager } from './browser';
 import type { ModelRouter, Provider, Message } from './router';
 import type { ApplicationStore } from './applications';
+import { requestMissingApplicationFields } from './application-form';
 import type { ProfileStore } from './profile';
 import { analyzeJob } from './analysis';
 import { reconcileApplicationAnswers } from './application-answers';
@@ -333,7 +334,7 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     } catch (error) { fail(res, error); }
     return true;
   }
-  const submissionAction = /^\/api\/hub\/applications\/([0-9a-f-]+)\/(prepare|submit|verify-submission)$/.exec(path);
+  const submissionAction = /^\/api\/hub\/applications\/([0-9a-f-]+)\/(inspect|prepare|submit|verify-submission)$/.exec(path);
   if (submissionAction) {
     if (!applications || !browser) { sendJson(res, 503, { error: 'Envio de candidaturas indisponível' }); return true; }
     if (req.method !== 'POST') { sendJson(res, 405, { error: 'Método não permitido' }); return true; }
@@ -343,6 +344,10 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
       const pageId = string(body.pageId, 'página');
       const page = browser.status().pages.find((candidate) => candidate.id === pageId);
       if (!page) { sendJson(res, 404, { error: 'Página do navegador não encontrada' }); return; }
+      if (submissionAction[2] === 'inspect') {
+        sendJson(res, 200, await requestMissingApplicationFields(store, applications, browser, app.id, pageId));
+        return;
+      }
       if (submissionAction[2] === 'prepare') {
         if (!['draft', 'awaiting_approval', 'approved'].includes(app.status)) throw new Error('Candidatura já possui tentativa de envio');
         sendJson(res, 200, await browser.fillAnswersByLabel(pageId, app.answers));
@@ -356,6 +361,8 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
         return;
       }
       if (app.status !== 'approved') throw new Error('A candidatura precisa estar aprovada antes do envio final');
+      if (store.listQuestions().some((question) => question.applicationId === app.id && question.state === 'pending'))
+        throw new Error('A candidatura possui perguntas pendentes; responda ou cancele antes do envio final');
       const buttonText = string(body.buttonText, 'texto do botão final');
       await browser.submissionReadyByText(pageId, buttonText, confirmationText);
       applications.startSubmission(app.id, page.url);

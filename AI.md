@@ -352,3 +352,11 @@ O serviço agora observa vagas salvas e transições do histórico de candidatur
 
 A ferramenta MCP autenticada `consultar_notificacoes_pendentes` também expõe perguntas pendentes e avisos WhatsApp que não foram aceitos pela Evolution, incluindo resultados incertos para revisão.
 
+## Atualização: inspeção de formulários de candidatura
+
+O navegador Playwright agora lê controles visíveis do formulário sem coletar seus valores. Pelo HUD, o usuário escolhe a aba da candidatura e pede inspeção. Para cada campo de texto obrigatório com rótulo único, sem resposta salva e com nome permitido, o serviço cria uma pergunta e uma tarefa independentes. Campos de senha, arquivo, seleção, caixas de confirmação e rótulos ambíguos seguem para revisão manual. Perguntas existentes não são duplicadas. Quando chega a resposta, o campo é persistido no rascunho e somente a tarefa correspondente retoma; essa tarefa interna não é enviada ao Codex nem ao modelo local. A API bloqueia o clique final enquanto existir pergunta pendente para a candidatura, mesmo se ela estava aprovada antes da inspeção. O painel exibe esse bloqueio.
+
+**Limites:** a inspeção precisa ser iniciada pelo usuário na aba correta. Não navega automaticamente até o formulário, não infere valores profissionais e não preenche uploads, seleções ou verificações de segurança. Portais podem exigir rótulos não suportados ou ter campos dentro de quadros internos; nesses casos o HUD aponta revisão manual. Perguntas WhatsApp só são enviadas quando a instância e o recebimento estiverem configurados. Nenhum portal externo foi usado neste teste.
+
+**Verificação desta atualização:** teste unitário cobriu criação única das perguntas, campos já conhecidos, campos manuais, persistência da resposta e execução da tarefa interna mesmo com sessão Codex vinculada ao especialista. O teste optativo com Edge real e página local cobriu rótulos visíveis, exclusão de senha/seleção/caixa de confirmação, bloqueio do envio com pergunta pendente e preenchimento depois da resposta. `npm test` passou com 2.043 testes aprovados e 18 ignorados em 192 arquivos; checagem de tipos e build passaram. O HUD foi compilado, mas não foi inspecionado visualmente nesta atualização.
+

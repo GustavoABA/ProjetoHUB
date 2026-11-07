@@ -47,6 +47,16 @@ export async function dispatchWithLocalFallback(store: HubStore, runner: CodexQu
   if (!task) return undefined;
   const agent = store.agent(task.agentId);
   if (!agent) return store.setTaskStatus(task.id, 'failed', 'Agente não encontrado');
+  if (action && agent.systemKey === 'job-search/applications' && task.instruction.startsWith('application-field:')) {
+    store.setTaskStatus(task.id, 'dispatching');
+    try {
+      const result = await action(task, agent);
+      if (result === undefined) throw new Error('Ação do campo da candidatura indisponível');
+      return store.recordActionResult(task.id, result);
+    } catch (error) {
+      return store.setTaskStatus(task.id, 'failed', `Ação: ${error instanceof Error ? error.message : 'falha de execução'}`);
+    }
+  }
   if (runner && agent.codexThread && agent.codexHome) {
     store.beginCodexDispatch(task.id, agent.codexThread);
     try {

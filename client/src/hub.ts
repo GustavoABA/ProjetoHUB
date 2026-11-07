@@ -85,7 +85,7 @@ export function mountHubPanel(): void {
     <form id="hub-schedule-form"><label>Pesquisa automática<input name="query" maxlength="100" required placeholder="Termo de pesquisa"></label><label>Intervalo<select name="interval"><option value="6">6 horas</option><option value="12">12 horas</option><option value="24">24 horas</option></select></label><label><span>Ativar</span><input name="enabled" type="checkbox"></label><button>Salvar agenda</button></form><p id="hub-schedule-status"></p>
     <p>Fontes: Remotive e páginas Greenhouse cadastradas por você. A Remotive tem limite de quatro tentativas por dia; as vagas exibidas levam ao anúncio original.</p>
     <h3>Candidaturas</h3><p>Respostas inseridas aqui devem ser confirmadas por você. Abra a página da vaga no navegador abaixo, faça login e acesse o formulário. O preparo tenta preencher campos com os mesmos rótulos das respostas. Revise tudo antes de autorizar e enviar. O sistema só marca como enviada quando a confirmação aparece na página.</p>
-    <form id="hub-application-form"><label>Vaga<select name="job" required></select></label><button>Preparar candidatura</button></form><ul id="hub-applications"></ul>
+    <form id="hub-application-form"><label>Vaga<select name="job" required></select></label><button>Preparar candidatura</button></form><p>Na candidatura, escolha a aba do formulário e use “Inspecionar campos” para pedir dados obrigatórios ainda não confirmados. Perguntas podem seguir pelo WhatsApp quando o canal estiver configurado. Confira campos de arquivo, seleção e senha manualmente.</p><ul id="hub-applications"></ul>
     <h3>Navegador</h3><div><button type="button" data-browser-visible>Abrir visível</button> <button type="button" data-browser-headless>Abrir em segundo plano</button> <button type="button" data-browser-manual>Assumir controle</button> <button type="button" data-browser-stop>Fechar</button></div>
     <form id="hub-browser-form"><label>Endereço<input name="url" type="url" required placeholder="https://..."></label><button>Abrir página</button></form><p id="hub-browser-status"></p><ul id="hub-browser-pages"></ul>
     <h3>Modelos de IA</h3><p>No Windows, salve as chaves de API nesta conta pelo painel. O campo será apagado após salvar. Se o serviço já tiver uma chave no ambiente, ela tem prioridade. A autenticação do Codex não é usada como chave de API.</p>
@@ -502,7 +502,8 @@ export function mountHubPanel(): void {
     const applicationList = panel.querySelector('#hub-applications')!; applicationList.replaceChildren();
     for (const app of applications.slice().reverse().slice(0, 100)) {
       const statusText: Record<Application['status'], string> = { draft: 'rascunho', awaiting_approval: 'aguardando aprovação', approved: 'envio autorizado; ainda não executado', submitting: 'envio em andamento', submission_uncertain: 'envio incerto; verificar no portal', submitted: 'envio confirmado na página' };
-      const li = document.createElement('li'); li.textContent = `${app.title} — ${app.company} · ${statusText[app.status]} `;
+      const pendingFields = questions.filter((question) => question.applicationId === app.id && question.state === 'pending');
+      const li = document.createElement('li'); li.textContent = `${app.title} — ${app.company} · ${statusText[app.status]}${pendingFields.length ? ` · ${pendingFields.length} informação(ões) pendente(s); envio bloqueado` : ''} `;
       const source = document.createElement('a'); source.href = app.originalUrl; source.target = '_blank'; source.rel = 'noopener noreferrer'; source.textContent = 'Vaga original'; source.style.color = '#c9bdff'; li.append(source);
       if (app.status !== 'submitted') {
         const openInBrowser = document.createElement('button'); openInBrowser.textContent = 'Abrir vaga no navegador do escritório';
@@ -531,6 +532,13 @@ export function mountHubPanel(): void {
         for (const page of browser.pages) option(pageSelect, page.id, page.url.slice(0, 100));
         execution.append(pageSelect);
         if (app.status !== 'submission_uncertain') {
+          const inspect = document.createElement('button'); inspect.type = 'button'; inspect.textContent = 'Inspecionar campos e solicitar dados';
+          inspect.onclick = () => void api<{ requested: { id: string }[]; alreadyKnown: string[]; alreadyRequested: string[]; needsManual: string[] }>(
+            `/api/hub/applications/${app.id}/inspect`, { pageId: pageSelect.value }).then((outcome) => {
+            message.textContent = `${outcome.requested.length} pergunta(s) criada(s); ${outcome.alreadyKnown.length} campo(s) com resposta; ${outcome.alreadyRequested.length} pergunta(s) já existente(s). Revisão manual: ${outcome.needsManual.join(', ') || 'nenhuma'}.`;
+            return refresh();
+          }).catch(showError);
+          execution.append(inspect);
           const prepare = document.createElement('button'); prepare.type = 'button'; prepare.textContent = 'Preencher respostas na aba';
           prepare.onclick = () => void api<{ filled: string[]; missing: string[] }>(`/api/hub/applications/${app.id}/prepare`, { pageId: pageSelect.value }).then((outcome) => {
             message.textContent = `${outcome.filled.length} campo(s) preenchido(s); ${outcome.missing.length} não encontrado(s): ${outcome.missing.join(', ') || 'nenhum'}. Revise o formulário.`;
@@ -541,7 +549,7 @@ export function mountHubPanel(): void {
           const confirmation = document.createElement('input'); confirmation.required = true; confirmation.maxLength = 200; confirmation.placeholder = 'Texto exato da confirmação esperada'; confirmation.setAttribute('aria-label', 'Texto de confirmação'); execution.append(confirmation);
           if (app.status === 'approved') {
             const buttonText = document.createElement('input'); buttonText.required = true; buttonText.maxLength = 200; buttonText.placeholder = 'Texto exato do botão final'; buttonText.setAttribute('aria-label', 'Texto do botão final'); execution.append(buttonText);
-            const submit = document.createElement('button'); submit.textContent = 'Enviar candidatura autorizada'; execution.append(submit);
+            const submit = document.createElement('button'); submit.textContent = 'Enviar candidatura autorizada'; submit.disabled = pendingFields.length > 0; execution.append(submit);
             execution.onsubmit = (event) => { event.preventDefault(); const pageUrl = browser.pages.find((page) => page.id === pageSelect.value)?.url;
               if (!pageUrl || !window.confirm(`Enviar agora a candidatura para ${app.company} na página ${pageUrl}? Verifique o formulário antes de confirmar.`)) return;
               void api<Application>(`/api/hub/applications/${app.id}/submit`, { pageId: pageSelect.value, buttonText: buttonText.value, confirmationText: confirmation.value }).then((outcome) => {

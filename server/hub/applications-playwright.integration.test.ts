@@ -7,17 +7,20 @@ import { BrowserManager } from './browser';
 import { ApplicationStore } from './applications';
 import { HubStore } from './store';
 import { handleHubRoute } from './http';
+import { reconcileApplicationAnswers } from './application-answers';
 
 it.skipIf(process.env.PROJECTHUB_E2E !== '1')('preenche e confirma uma candidatura apenas após resposta real da página local', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'projecthub-application-edge-'));
   let posts = 0;
   const store = new ApplicationStore(join(dir, 'applications.json'));
   const hub = new HubStore(join(dir, 'state.json'));
+  hub.ensureJobSearchTeam();
   const browser = new BrowserManager({ profileDir: join(dir, 'profile'), logFile: join(dir, 'navigation.jsonl'), confirmationTimeoutMs: 1_000 });
   const site = createServer((req, res) => {
     if (req.url?.startsWith('/api/hub/') && handleHubRoute(req, res, new URL(req.url, 'http://localhost'), hub, undefined, fetch, browser, undefined, store)) return;
     res.setHeader('content-type', 'text/html; charset=utf-8');
     if (req.method === 'POST') { posts++; res.end(req.url === '/unconfirmed' ? '<h1>Sem confirmação de envio</h1>' : '<h1>Candidatura de teste recebida</h1>'); return; }
+    if (req.url === '/inspect-only') { res.end('<form><label for="availability">Disponibilidade</label><input id="availability" required><input aria-label="Experiência" required><label for="password">Senha</label><input id="password" type="password" required><label><input type="checkbox" required>Aceito os termos</label><label for="city">Cidade</label><select id="city" required><option>Escolha</option></select></form>'); return; }
     res.end('<form method="post"><label for="name">Nome</label><input id="name" name="name"><button type="submit">Enviar candidatura de teste</button></form>');
   });
   await new Promise<void>((resolve) => site.listen(0, '127.0.0.1', resolve));
@@ -52,6 +55,32 @@ it.skipIf(process.env.PROJECTHUB_E2E !== '1')('preenche e confirma uma candidatu
     expect(uncertain.status).toBe(202);
     expect((await uncertain.json()).status).toBe('submission_uncertain');
     expect(posts).toBe(2);
+    const inspected = store.create({ jobId: 'local-test-3', source: 'LocalTest', sourceId: '3', originalUrl: 'https://example.com/test-only-3', title: 'Teste local 3', company: 'Servidor local' });
+    store.setAnswers(inspected.id, { Outro: 'Dado confirmado' }); store.requestApproval(inspected.id); store.approve(inspected.id);
+    const formPage = await browser.open(`http://127.0.0.1:${address.port}/inspect-only`);
+    const formFields = await browser.inspectFormFields(formPage.id);
+    expect(formFields.filter((field) => field.required && field.fillable).map((field) => field.label)).toEqual(['Disponibilidade', 'Experiência']);
+    const intake = await fetch(`http://127.0.0.1:${address.port}/api/hub/applications/${inspected.id}/inspect`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pageId: formPage.id }),
+    });
+    expect(intake.status).toBe(200);
+    const intakeResult = await intake.json() as { requested: { id: string; fieldName: string }[]; needsManual: string[] };
+    expect(intakeResult.requested.map((question) => question.fieldName)).toEqual(['Disponibilidade', 'Experiência']);
+    expect(intakeResult.needsManual).toEqual(['Senha', 'Aceito os termos', 'Cidade']);
+    const premature = await fetch(`http://127.0.0.1:${address.port}/api/hub/applications/${inspected.id}/submit`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pageId: formPage.id,
+        buttonText: 'Enviar candidatura de teste', confirmationText: 'Candidatura de teste recebida' }),
+    });
+    expect(premature.status).toBe(400);
+    expect(await premature.text()).toContain('perguntas pendentes');
+    expect(posts).toBe(2);
+    hub.answerQuestion(intakeResult.requested[0].id, 'Imediata');
+    reconcileApplicationAnswers(hub, store);
+    expect(store.get(inspected.id)).toMatchObject({ status: 'draft', answers: { Disponibilidade: 'Imediata' } });
+    const fillKnown = await fetch(`http://127.0.0.1:${address.port}/api/hub/applications/${inspected.id}/prepare`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pageId: formPage.id }),
+    });
+    expect(await fillKnown.json()).toMatchObject({ filled: ['Disponibilidade'] });
     const duplicate = await fetch(`http://127.0.0.1:${address.port}/api/hub/applications/${other.id}/submit`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...finalBody, pageId: otherPage.id }),
     });

@@ -5,6 +5,7 @@ import type { ModelRouter } from './router';
 import type { ApplicationStore } from './applications';
 import { analyzeJob, scoreJob } from './analysis';
 import { searchGreenhouseBoards, type GreenhouseBoardStore } from './greenhouse';
+import { reconcileApplicationAnswers } from './application-answers';
 
 export interface JobActionDeps {
   hub: HubStore;
@@ -85,6 +86,14 @@ export async function runJobAction(task: HubTask, agent: HubAgent, deps: JobActi
   }
   if (agent.systemKey === 'job-search/applications') {
     if (!deps.applications) throw new Error('Candidaturas indisponíveis');
+    if (task.instruction.startsWith('application-field:')) {
+      reconcileApplicationAnswers(deps.hub, deps.applications);
+      const question = deps.hub.listQuestions().find((item) => item.taskId === task.id && item.applicationId && item.fieldName);
+      if (!question || question.state !== 'answered' || !question.appliedAt) throw new Error('Resposta do campo da candidatura ainda não aplicada');
+      const app = deps.applications.get(question.applicationId!);
+      if (!app?.answers[question.fieldName!]) throw new Error('Campo da candidatura sem resposta persistida');
+      return `Resposta do campo ${question.fieldName} registrada no rascunho de ${app.title} em ${app.company}. Revise e aprove antes do envio final.`;
+    }
     const job = deps.jobs.list().find((entry) => entry.id === task.instruction);
     if (!job) throw new Error('Vaga não encontrada entre os anúncios salvos');
     const existing = deps.applications.list().find((app) => app.source === job.source && app.sourceId === job.sourceId);
