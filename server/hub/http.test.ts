@@ -14,6 +14,7 @@ import { ModelRouter } from './router';
 import { WhatsAppStore } from './whatsapp';
 import { BackupManager } from './backup';
 import { WindowsStartupManager } from './windows-startup';
+import { EvolutionSettings } from './evolution-settings';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -62,6 +63,37 @@ it('toggles the owned Windows startup shortcut through the local panel API', asy
     const enabled = await fetch(base, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"enabled":true}' });
     expect((await enabled.json()).enabled).toBe(true);
     expect((await (await fetch(base)).json()).enabled).toBe(true);
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+it('configures Evolution through the local API without returning its key', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
+  const settings = new EvolutionSettings(join(dir, 'evolution-settings.json'), {}, 'win32', {
+    protect: async (value) => `encrypted:${value}`, unprotect: async (value) => value.slice(10),
+  });
+  const urls: string[] = [];
+  const fetcher = (async (url: string | URL | Request) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify(urls.length === 1 ? { version: '2.3.7' } : []), { status: 200 });
+  }) as typeof fetch;
+  const hub = new HubStore(join(dir, 'state.json'));
+  const whatsapp = new WhatsAppStore(join(dir, 'whatsapp.json'));
+  const server = http.createServer((req, res) => {
+    handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), hub,
+      undefined, fetcher, undefined, undefined, undefined, undefined, whatsapp,
+      undefined, undefined, undefined, undefined, undefined, undefined, settings);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const base = `http://127.0.0.1:${address.port}/api/hub/whatsapp`;
+    const changed = await fetch(base + '/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: 'https://evolution.example.test/api', apiKey: 'dummy-secret' }) });
+    expect(changed.status).toBe(200);
+    expect(JSON.stringify(await changed.json())).not.toContain('dummy-secret');
+    expect((await (await fetch(base)).json()).apiKeyConfigured).toBe(true);
+    await fetch(base + '/diagnostics');
+    expect(urls).toEqual(['https://evolution.example.test/api/', 'https://evolution.example.test/api/instance/fetchInstances']);
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 

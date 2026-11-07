@@ -14,6 +14,7 @@ import type { ConnectionSession, SessionPolicy } from './connection-session';
 import type { ConnectionPublisher } from './connection-publisher';
 import type { BackupManager } from './backup';
 import type { WindowsStartupManager } from './windows-startup';
+import type { EvolutionSettings } from './evolution-settings';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Corpo JSON inválido');
@@ -28,7 +29,7 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /** Routes are mounted only on the local server, after the normal Host/Origin guard. */
-export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore, ngrok?: NgrokManager, session?: ConnectionSession, publisher?: ConnectionPublisher, backups?: BackupManager, windowsStartup?: WindowsStartupManager): boolean {
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore, ngrok?: NgrokManager, session?: ConnectionSession, publisher?: ConnectionPublisher, backups?: BackupManager, windowsStartup?: WindowsStartupManager, evolution?: EvolutionSettings): boolean {
   const path = url.pathname;
   if (!path.startsWith('/api/hub/')) return false;
   const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
@@ -87,11 +88,28 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
   }
   if (path === '/api/hub/whatsapp') {
     if (!whatsapp) sendJson(res, 503, { error: 'WhatsApp indisponível' });
-    else if (req.method === 'GET') sendJson(res, 200, { ...whatsapp.status(), apiKeyConfigured: Boolean(process.env.EVOLUTION_API_KEY), webhookPort: process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT || null });
+    else if (req.method === 'GET') sendJson(res, 200, { ...whatsapp.status(), apiKeyConfigured: evolution?.status().apiKeyConfigured ?? Boolean(process.env.EVOLUTION_API_KEY), webhookPort: process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT || null });
     else if (req.method === 'PUT') void readJson(req).then((raw) => {
       const body = record(raw);
       sendJson(res, 200, whatsapp.configure({ mainNumber: string(body.mainNumber, 'número principal'), secondaryNumber: string(body.secondaryNumber, 'número secundário') }));
     }).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  if (path === '/api/hub/whatsapp/settings') {
+    if (!evolution) sendJson(res, 503, { error: 'Configuração Evolution indisponível' });
+    else if (req.method === 'GET') sendJson(res, 200, evolution.status());
+    else if (req.method === 'PUT') void readJson(req).then((raw) => {
+      const body = record(raw);
+      return evolution.configure({ ...(body.baseUrl !== undefined ? { baseUrl: string(body.baseUrl, 'URL') } : {}),
+        ...(body.apiKey !== undefined ? { apiKey: string(body.apiKey, 'chave') } : {}) });
+    }).then((result) => sendJson(res, 200, result)).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  if (path === '/api/hub/whatsapp/settings/key') {
+    if (!evolution) sendJson(res, 503, { error: 'Configuração Evolution indisponível' });
+    else if (req.method === 'DELETE') { req.resume(); sendJson(res, 200, evolution.clearKey()); }
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
@@ -103,14 +121,17 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
   }
   if (path === '/api/hub/whatsapp/diagnostics') {
     if (!whatsapp) sendJson(res, 503, { error: 'WhatsApp indisponível' });
-    else if (req.method === 'GET') void whatsapp.diagnose(process.env.EVOLUTION_API_KEY ?? '', fetcher).then((result) => sendJson(res, 200, result)).catch((error) => fail(res, error));
+    else if (req.method === 'GET') void (evolution?.apiKey() ?? Promise.resolve(process.env.EVOLUTION_API_KEY ?? ''))
+      .then((key) => whatsapp.diagnose(key, fetcher, evolution?.status().baseUrl)).then((result) => sendJson(res, 200, result)).catch((error) => fail(res, error));
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
   const sendQuestionAction = /^\/api\/hub\/whatsapp\/questions\/([0-9a-f-]+)\/send$/.exec(path);
   if (sendQuestionAction) {
     if (!whatsapp) sendJson(res, 503, { error: 'WhatsApp indisponível' });
-    else if (req.method === 'POST') { req.resume(); void whatsapp.sendQuestion(sendQuestionAction[1], store, process.env.EVOLUTION_API_KEY ?? '', fetcher).then((result) => sendJson(res, result.state === 'accepted' ? 200 : 502, result)).catch((error) => fail(res, error)); }
+    else if (req.method === 'POST') { req.resume(); void (evolution?.apiKey() ?? Promise.resolve(process.env.EVOLUTION_API_KEY ?? ''))
+      .then((key) => whatsapp.sendQuestion(sendQuestionAction[1], store, key, fetcher, evolution?.status().baseUrl))
+      .then((result) => sendJson(res, result.state === 'accepted' ? 200 : 502, result)).catch((error) => fail(res, error)); }
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }

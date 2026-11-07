@@ -74,3 +74,16 @@ it('reports only the requested logical instance in diagnostics', async () => {
   expect(await whatsapp.diagnose('secret', fetcher)).toMatchObject({ reachable: true, version: '2.3.7', instanceExists: true, connectionStatus: 'close' });
   expect(JSON.stringify(await whatsapp.diagnose('', async () => new Response(JSON.stringify({ version: '2.3.7' }), { status: 200 })))).not.toContain('secret');
 });
+
+it('uses the configured Evolution base URL for diagnostics and sending', async () => {
+  const { hub, whatsapp, question } = setup();
+  const urls: string[] = [];
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify(urls.length === 1 ? { version: '2.3.7' } : urls.length === 2 ? [] : { key: { id: 'OUT-002' } }), { status: 200 });
+  });
+  const base = 'https://evolution.example.test/api';
+  await whatsapp.diagnose('secret', fetcher, base);
+  await whatsapp.sendQuestion(question.id, hub, 'secret', fetcher, base);
+  expect(urls).toEqual([`${base}/`, `${base}/instance/fetchInstances`, `${base}/message/sendText/procura-de-emprego`]);
+});

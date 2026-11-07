@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import type { HubStore } from './store';
 
 const INSTANCE = 'procura-de-emprego';
-const ENDPOINT = `http://127.0.0.1:8080/message/sendText/${INSTANCE}`;
+const DEFAULT_EVOLUTION_URL = 'http://127.0.0.1:8080';
 type OutboundState = 'sending' | 'accepted' | 'uncertain' | 'failed';
 export interface OutboundMessage { id: string; questionId: string; text: string; state: OutboundState; createdAt: string; updatedAt: string; providerMessageId?: string; error?: string }
 interface InboundMessage { id: string; questionId: string; receivedAt: string }
@@ -43,14 +43,14 @@ export class WhatsAppStore {
     const expected = this.state.webhookTokenHash;
     return Boolean(expected && /^[0-9a-f]{64}$/.test(expected) && typeof token === 'string' && token.length <= 200 && timingSafeEqual(hash(token), Buffer.from(expected, 'hex')));
   }
-  async diagnose(apiKey: string, fetcher: typeof fetch = fetch): Promise<{ reachable: boolean; version?: string; instanceExists: boolean | null; connectionStatus?: string; error?: string }> {
+  async diagnose(apiKey: string, fetcher: typeof fetch = fetch, baseUrl = DEFAULT_EVOLUTION_URL): Promise<{ reachable: boolean; version?: string; instanceExists: boolean | null; connectionStatus?: string; error?: string }> {
     try {
-      const root = await fetcher('http://127.0.0.1:8080/', { signal: AbortSignal.timeout(5_000) });
+      const root = await fetcher(`${baseUrl}/`, { signal: AbortSignal.timeout(5_000) });
       if (!root.ok) return { reachable: false, instanceExists: null, error: `Evolution HTTP ${root.status}` };
       const info = object(await root.json());
       const version = typeof info?.version === 'string' ? info.version : undefined;
-      if (!apiKey) return { reachable: true, ...(version ? { version } : {}), instanceExists: null, error: 'EVOLUTION_API_KEY não configurada' };
-      const response = await fetcher('http://127.0.0.1:8080/instance/fetchInstances', { headers: { apikey: apiKey }, signal: AbortSignal.timeout(5_000) });
+      if (!apiKey) return { reachable: true, ...(version ? { version } : {}), instanceExists: null, error: 'Chave da Evolution API não configurada' };
+      const response = await fetcher(`${baseUrl}/instance/fetchInstances`, { headers: { apikey: apiKey }, signal: AbortSignal.timeout(5_000) });
       if (!response.ok) return { reachable: true, ...(version ? { version } : {}), instanceExists: null, error: `Consulta de instâncias HTTP ${response.status}` };
       const instances: unknown = await response.json();
       if (!Array.isArray(instances)) return { reachable: true, ...(version ? { version } : {}), instanceExists: null, error: 'Resposta de instâncias inválida' };
@@ -85,9 +85,9 @@ export class WhatsAppStore {
     if (this.state.inbound.length > 10_000) this.state.inbound.splice(0, this.state.inbound.length - 10_000);
     this.save(); return 'answered';
   }
-  async sendQuestion(questionId: string, hub: HubStore, apiKey: string, fetcher: typeof fetch = fetch): Promise<OutboundMessage> {
+  async sendQuestion(questionId: string, hub: HubStore, apiKey: string, fetcher: typeof fetch = fetch, baseUrl = DEFAULT_EVOLUTION_URL): Promise<OutboundMessage> {
     if (!this.state.mainNumber || !this.state.secondaryNumber) throw new Error('Configure os números principal e secundário');
-    if (!apiKey) throw new Error('EVOLUTION_API_KEY não configurada no processo');
+    if (!apiKey) throw new Error('Chave da Evolution API não configurada');
     const existing = this.state.outbound.find((item) => item.questionId === questionId);
     if (existing) return structuredClone(existing);
     const question = hub.listQuestions().find((q) => q.id === questionId && q.state === 'pending');
@@ -98,7 +98,7 @@ export class WhatsAppStore {
     const message: OutboundMessage = { id: randomUUID(), questionId, text, state: 'sending', createdAt: now, updatedAt: now };
     this.state.outbound.push(message); this.save();
     try {
-      const response = await fetcher(ENDPOINT, { method: 'POST', headers: { apikey: apiKey, 'Content-Type': 'application/json' }, body: JSON.stringify({ number: this.state.mainNumber, text }), signal: AbortSignal.timeout(30_000) });
+      const response = await fetcher(`${baseUrl}/message/sendText/${INSTANCE}`, { method: 'POST', headers: { apikey: apiKey, 'Content-Type': 'application/json' }, body: JSON.stringify({ number: this.state.mainNumber, text }), signal: AbortSignal.timeout(30_000) });
       if (!response.ok) {
         message.state = response.status >= 500 ? 'uncertain' : 'failed'; message.error = `Evolution HTTP ${response.status}`;
       } else {

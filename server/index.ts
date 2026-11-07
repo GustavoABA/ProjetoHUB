@@ -74,6 +74,7 @@ import { ConnectionSession } from './hub/connection-session';
 import { ConnectionPublisher } from './hub/connection-publisher';
 import { BackupManager } from './hub/backup';
 import { WindowsStartupManager } from './hub/windows-startup';
+import { EvolutionSettings } from './hub/evolution-settings';
 
 const config = loadConfig();
 const startedAt = Date.now();
@@ -101,6 +102,7 @@ const modelRouter = new ModelRouter(join(config.dataDir, 'projecthub', 'router.j
 const applicationStore = new ApplicationStore(join(config.dataDir, 'projecthub', 'applications.json'));
 const profileStore = new ProfileStore(join(config.dataDir, 'projecthub', 'profile.json'));
 const whatsAppStore = new WhatsAppStore(join(config.dataDir, 'projecthub', 'whatsapp.json'));
+const evolutionSettings = new EvolutionSettings(join(config.dataDir, 'projecthub', 'evolution-settings.json'));
 const mcpKeys = new AdminKeyStore(join(config.dataDir, 'projecthub', 'mcp-admin.json'));
 const connectionSession = new ConnectionSession(join(config.dataDir, 'projecthub', 'connection-session.json'));
 const connectionPublisher = new ConnectionPublisher(process.env.PROJECTHUB_GITHUB_TOKEN);
@@ -489,7 +491,7 @@ server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
-    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher, backupManager, windowsStartup) && !api(req, res, url)) fallback(req, res, url);
+    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher, backupManager, windowsStartup, evolutionSettings) && !api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(tr('Erro ao responder {0} {1}: {2}', [req.method, url.pathname, errMsg(err)]));
     if (!res.headersSent) sendJson(res, 500, { error: tr('erro interno') });

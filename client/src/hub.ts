@@ -5,6 +5,7 @@ type Source = { label: string; path: string; provider: string };
 type Job = { id: string; title: string; company: string; location: string; source: string; originalUrl: string; salary?: string; compatibility: number | null; justification: string; requirements: string[]; analysisModel?: string; analyzedAt?: string; applicationStatus: string };
 type Profile = { revision: string; skills: string[]; experience: string[]; education: string[]; confirmedAt?: string };
 type WhatsAppStatus = { instance: string; mainNumber?: string; secondaryNumber?: string; webhookTokenConfigured: boolean; apiKeyConfigured: boolean; webhookPort?: string | null; outbound: { questionId: string; state: string; error?: string }[] };
+type EvolutionStatus = { baseUrl: string; apiKeyConfigured: boolean; apiKeySource: 'windows' | 'environment' | null };
 type Schedule = { query?: string; intervalHours?: number; enabled: boolean; nextRunAt?: string; lastError?: string };
 type BrowserStatus = { running: boolean; headless: boolean; manual: boolean; pages: { id: string; url: string }[] };
 type RouterStatus = { models: { id: string; provider: string; model: string; priority: number; enabled: boolean; available: boolean }[]; usage: { inputTokens: number; outputTokens: number; requests: number }; lastError?: string };
@@ -45,9 +46,10 @@ export function mountHubPanel(): void {
     <h3>Nova tarefa</h3><form id="hub-task-form"><label>Agente<select name="agent" required></select></label><label>Instrução<input name="instruction" maxlength="10000" required></label><button>Criar tarefa</button></form>
     <h3>Perguntas pendentes</h3><form id="hub-question-form"><label>Tarefa<select name="task" required></select></label><label>Pergunta<input name="text" maxlength="2000" required></label><label>Candidatura (opcional)<select name="applicationId"><option value="">Sem candidatura</option></select></label><button>Registrar pergunta</button></form><ul id="hub-questions"></ul>
     <h3>WhatsApp · Evolution API</h3><p>A instância lógica é procura-de-emprego. Configure os números com DDI e DDD. Nenhuma mensagem será enviada antes de acionar o envio de uma pergunta.</p>
+    <form id="hub-evolution-form"><label>URL da Evolution API<input name="baseUrl" type="url" required placeholder="http://127.0.0.1:8080"></label><label>Chave da Evolution API<input name="apiKey" type="password" autocomplete="new-password" placeholder="Deixe vazio para manter a chave atual"></label><button>Salvar conexão</button></form><button type="button" data-evolution-clear>Remover chave salva neste Windows</button><p id="hub-evolution-status"></p>
     <form id="hub-whatsapp-form"><label>Número principal (destino)<input name="mainNumber" inputmode="numeric" pattern="[0-9]{10,15}" required></label><label>Número secundário (instância)<input name="secondaryNumber" inputmode="numeric" pattern="[0-9]{10,15}" required></label><button>Salvar números</button></form>
     <p id="hub-whatsapp-status"></p><button type="button" data-whatsapp-diagnostics>Verificar Evolution API</button> <button type="button" data-whatsapp-token>Gerar novo token do webhook</button><p id="hub-whatsapp-diagnostics"></p><p id="hub-whatsapp-token"></p>
-    <p>Para parear: <a href="http://127.0.0.1:8080/manager" target="_blank" rel="noopener noreferrer" style="color:#c9bdff">abrir Evolution Manager</a>, criar somente a instância <strong>procura-de-emprego</strong> e ler o QR com o número secundário. No webhook dessa instância, use o evento MESSAGES_UPSERT e o cabeçalho X-ProjectHUB-Token com o token gerado acima. O listener precisa estar acessível à Evolution API.</p>
+    <p>Para parear: <a id="hub-evolution-manager" href="http://127.0.0.1:8080/manager" target="_blank" rel="noopener noreferrer" style="color:#c9bdff">abrir Evolution Manager</a>, criar somente a instância <strong>procura-de-emprego</strong> e ler o QR com o número secundário. No webhook dessa instância, use o evento MESSAGES_UPSERT e o cabeçalho X-ProjectHUB-Token com o token gerado acima. O listener precisa estar acessível à Evolution API.</p>
     <h3>Controle remoto MCP</h3><p id="hub-mcp-status"></p><p id="hub-github-status"></p><p id="hub-admin-session"></p><label>Ao completar 12 horas<select id="hub-admin-policy"><option value="notify">Avisar e manter túnel</option><option value="renew">Renovar automaticamente</option><option value="close">Fechar túnel</option></select></label><button type="button" data-session-policy>Salvar política</button> <button type="button" data-session-renew>Renovar sessão agora</button><p><button type="button" data-mcp-key>Gerar ou revogar chave administrativa</button> <button type="button" data-mcp-copy>Copiar configuração de conexão</button></p><p id="hub-mcp-key"></p><small>A chave aparece uma vez. Gerar novamente revoga a anterior. O endereço local só funciona neste computador; acesso externo requer túnel e cliente MCP compatível com autenticação Bearer.</small>
     <h3>Backups locais</h3><p>O escritório cria uma cópia do estado a cada 24 horas. Restaurar uma cópia substitui os dados do ProjetoHUB na próxima abertura do serviço; uma cópia de segurança do estado atual é criada antes.</p><button type="button" data-backup-create>Criar backup agora</button><p id="hub-backup-status"></p><ul id="hub-backups"></ul><small>O perfil do navegador, as chaves externas e a chave administrativa MCP não entram no backup. Guarde as cópias locais em um disco protegido.</small>
     <h3>Inicialização do Windows</h3><p id="hub-windows-startup-status"></p><button type="button" data-windows-startup>Alterar inicialização automática</button>
@@ -72,6 +74,7 @@ export function mountHubPanel(): void {
   const taskForm = panel.querySelector('#hub-task-form') as HTMLFormElement;
   const questionForm = panel.querySelector('#hub-question-form') as HTMLFormElement;
   const whatsappForm = panel.querySelector('#hub-whatsapp-form') as HTMLFormElement;
+  const evolutionForm = panel.querySelector('#hub-evolution-form') as HTMLFormElement;
   const profileForm = panel.querySelector('#hub-profile-form') as HTMLFormElement;
   const applicationForm = panel.querySelector('#hub-application-form') as HTMLFormElement;
   const jobForm = panel.querySelector('#hub-job-form') as HTMLFormElement;
@@ -91,10 +94,11 @@ export function mountHubPanel(): void {
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
 
   async function refresh(): Promise<void> {
-    const [agents, tasks, questions, whatsapp, profile, jobs, applications, schedule, browser, router, mcp, adminSession, backups, windowsStartup, snapshot, health] = await Promise.all([
+    const [agents, tasks, questions, whatsapp, evolution, profile, jobs, applications, schedule, browser, router, mcp, adminSession, backups, windowsStartup, snapshot, health] = await Promise.all([
       api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'),
       api<Question[]>('/api/hub/questions'),
       api<WhatsAppStatus>('/api/hub/whatsapp'),
+      api<EvolutionStatus>('/api/hub/whatsapp/settings'),
       api<Profile>('/api/hub/profile'),
       api<Job[]>('/api/hub/jobs'),
       api<Application[]>('/api/hub/applications'),
@@ -137,6 +141,13 @@ export function mountHubPanel(): void {
       (whatsappForm.elements.namedItem('mainNumber') as HTMLInputElement).value = whatsapp.mainNumber ?? '';
       (whatsappForm.elements.namedItem('secondaryNumber') as HTMLInputElement).value = whatsapp.secondaryNumber ?? '';
     }
+    if (!evolutionForm.contains(document.activeElement)) (evolutionForm.elements.namedItem('baseUrl') as HTMLInputElement).value = evolution.baseUrl;
+    (panel.querySelector('#hub-evolution-manager') as HTMLAnchorElement).href = `${evolution.baseUrl}/manager`;
+    (panel.querySelector('#hub-evolution-status') as HTMLElement).textContent = `${evolution.baseUrl} · ${evolution.apiKeySource === 'windows' ? 'chave protegida para este usuário do Windows' : evolution.apiKeySource === 'environment' ? 'chave fornecida pelo ambiente do serviço' : 'chave pendente'}.`;
+    const evolutionKeyInput = evolutionForm.elements.namedItem('apiKey') as HTMLInputElement;
+    evolutionKeyInput.disabled = evolution.apiKeySource === 'environment';
+    evolutionKeyInput.placeholder = evolution.apiKeySource === 'environment' ? 'Remova EVOLUTION_API_KEY do ambiente para usar o painel' : 'Deixe vazio para manter a chave atual';
+    (panel.querySelector('[data-evolution-clear]') as HTMLButtonElement).disabled = evolution.apiKeySource !== 'windows';
     (panel.querySelector('#hub-whatsapp-status') as HTMLElement).textContent = `${whatsapp.instance} · ${whatsapp.mainNumber && whatsapp.secondaryNumber ? 'números configurados' : 'números pendentes'} · ${whatsapp.apiKeyConfigured ? 'chave Evolution detectada' : 'chave Evolution não configurada'} · ${whatsapp.webhookTokenConfigured ? 'token do webhook gerado' : 'token do webhook pendente'} · ${whatsapp.webhookPort ? `porta do webhook ${whatsapp.webhookPort}` : 'listener do webhook desligado'}.`;
     if (!profileForm.contains(document.activeElement)) {
       for (const key of ['skills', 'experience', 'education'] as const) (profileForm.elements.namedItem(key) as HTMLTextAreaElement).value = profile[key].join('\n');
@@ -330,7 +341,7 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
-    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
@@ -370,6 +381,12 @@ export function mountHubPanel(): void {
     message.textContent = 'Configuração de conexão copiada. Mantenha a chave em local privado.';
     }).catch(showError);
   };
+  evolutionForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(evolutionForm);
+    const key = String(data.get('apiKey') ?? '');
+    void api('/api/hub/whatsapp/settings', { baseUrl: data.get('baseUrl'), ...(key ? { apiKey: key } : {}) }, 'PUT')
+      .then(() => { (evolutionForm.elements.namedItem('apiKey') as HTMLInputElement).value = ''; message.textContent = 'Conexão Evolution salva neste computador.'; return refresh(); }).catch(showError);
+  };
+  (panel.querySelector('[data-evolution-clear]') as HTMLButtonElement).onclick = () => void api('/api/hub/whatsapp/settings/key', {}, 'DELETE').then(refresh).catch(showError);
   const originalClose = (panel.querySelector('[data-close]') as HTMLButtonElement).onclick;
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = (event) => { (panel.querySelector('#hub-whatsapp-token') as HTMLElement).textContent = ''; (panel.querySelector('#hub-mcp-key') as HTMLElement).textContent = ''; currentMcpKey = undefined; originalClose?.call(panel.querySelector('[data-close]') as HTMLButtonElement, event); };
   profileForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(profileForm);
