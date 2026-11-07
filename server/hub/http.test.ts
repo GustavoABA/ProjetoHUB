@@ -13,6 +13,7 @@ import { ProfileStore } from './profile';
 import { ModelRouter } from './router';
 import { WhatsAppStore } from './whatsapp';
 import { BackupManager } from './backup';
+import { WindowsStartupManager } from './windows-startup';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -38,6 +39,29 @@ it('creates and schedules a verified backup through the local panel API', async 
     const restore = await fetch(base + '/api/hub/backups/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: backup.id }) });
     expect(restore.status).toBe(202);
     expect((await restore.json()).pendingRestore).toBe(backup.id);
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+it('toggles the owned Windows startup shortcut through the local panel API', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
+  let installed = false;
+  const startup = new WindowsStartupManager(async (action) => {
+    if (action === 'Install') installed = true;
+    if (action === 'Remove') installed = false;
+    return JSON.stringify({ installed, owned: installed, shortcut: 'C:/Startup/ProjetoHUB.lnk' });
+  }, 'win32');
+  const server = http.createServer((req, res) => {
+    handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), new HubStore(join(dir, 'state.json')),
+      undefined, fetch, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, startup);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const base = `http://127.0.0.1:${address.port}/api/hub/windows/startup`;
+    expect((await (await fetch(base)).json()).enabled).toBe(false);
+    const enabled = await fetch(base, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"enabled":true}' });
+    expect((await enabled.json()).enabled).toBe(true);
+    expect((await (await fetch(base)).json()).enabled).toBe(true);
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 

@@ -73,10 +73,12 @@ import { NgrokManager } from './hub/ngrok';
 import { ConnectionSession } from './hub/connection-session';
 import { ConnectionPublisher } from './hub/connection-publisher';
 import { BackupManager } from './hub/backup';
+import { WindowsStartupManager } from './hub/windows-startup';
 
 const config = loadConfig();
 const startedAt = Date.now();
 const backupManager = new BackupManager(join(config.dataDir, 'projecthub'));
+const windowsStartup = new WindowsStartupManager();
 if (backupManager.applyPendingRestore()) log.info('Backup do ProjetoHUB restaurado antes de iniciar os agentes.');
 
 // Nome antigo (CodeTown, até a 0.3.2): leva ~/.codetown para ~/.habblaud antes de ler qualquer estado e avisa
@@ -487,7 +489,7 @@ server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
-    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher, backupManager) && !api(req, res, url)) fallback(req, res, url);
+    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher, backupManager, windowsStartup) && !api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(tr('Erro ao responder {0} {1}: {2}', [req.method, url.pathname, errMsg(err)]));
     if (!res.headersSent) sendJson(res, 500, { error: tr('erro interno') });
