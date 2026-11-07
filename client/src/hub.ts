@@ -12,7 +12,10 @@ type WebhookListenerStatus = { enabled: boolean; port: number; exposeLan: boolea
 type EvolutionInstanceResult = { instance: string; created?: boolean; status?: string; qrCode?: string; pairingCode?: string };
 type Schedule = { query?: string; intervalHours?: number; enabled: boolean; nextRunAt?: string; lastError?: string };
 type BrowserStatus = { running: boolean; headless: boolean; manual: boolean; pages: { id: string; url: string }[] };
-type RouterStatus = { models: { id: string; provider: string; model: string; priority: number; enabled: boolean; available: boolean }[]; usage: { inputTokens: number; outputTokens: number; requests: number }; lastError?: string };
+type RouterStatus = { models: { id: string; provider: string; model: string; priority: number; enabled: boolean; available: boolean;
+  monthlyRequestLimit?: number; monthlyCostLimitUsd?: number; inputUsdPerMillion?: number; outputUsdPerMillion?: number;
+  monthlyUsage: { month: string; requests: number; inputTokens: number; outputTokens: number; estimatedCostUsd: number; unpricedRequests: number } }[];
+  usage: { inputTokens: number; outputTokens: number; requests: number; estimatedCostUsd?: number; unpricedRequests?: number }; lastError?: string };
 type ProviderCredentialStatus = Record<string, { configured: boolean; source: 'windows' | 'environment' | null }>;
 type McpStatus = { configured: boolean; port: number; ngrok: { installed: boolean; running: boolean; mcpUrl?: string; error?: string }; github: { configured: boolean; lastPublishAt?: string; lastError?: string } };
 type AdminSession = { installationId: string; startedAt: string; expiresAt: string; policy: 'renew' | 'notify' | 'close'; remainingSeconds: number; expired: boolean };
@@ -75,7 +78,7 @@ export function mountHubPanel(): void {
     <form id="hub-browser-form"><label>Endereço<input name="url" type="url" required placeholder="https://..."></label><button>Abrir página</button></form><p id="hub-browser-status"></p><ul id="hub-browser-pages"></ul>
     <h3>Modelos de IA</h3><p>No Windows, salve as chaves de API nesta conta pelo painel. O campo será apagado após salvar. Se o serviço já tiver uma chave no ambiente, ela tem prioridade. A autenticação do Codex não é usada como chave de API.</p>
     <form id="hub-credential-form"><label>Provedor<select name="provider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Google Gemini</option><option value="deepseek">DeepSeek</option><option value="openrouter">OpenRouter</option></select></label><label>Chave de API<input name="key" type="password" autocomplete="new-password" maxlength="4096" required></label><button data-provider-save>Salvar chave</button><button type="button" data-provider-clear>Remover chave local</button></form><p id="hub-credential-status"></p>
-    <form id="hub-model-form"><label>Provedor<select name="provider"><option value="openai">OpenAI · OPENAI_API_KEY</option><option value="anthropic">Anthropic · ANTHROPIC_API_KEY</option><option value="gemini">Gemini · GEMINI_API_KEY</option><option value="deepseek">DeepSeek · DEEPSEEK_API_KEY</option><option value="openrouter">OpenRouter · OPENROUTER_API_KEY</option><option value="ollama">Ollama local</option></select></label><label>Modelo<input name="model" required placeholder="Nome exato do modelo"></label><label>Prioridade<input name="priority" type="number" min="1" max="1000" value="1" required></label><button>Cadastrar modelo</button></form>
+    <form id="hub-model-form"><label>Provedor<select name="provider"><option value="openai">OpenAI · OPENAI_API_KEY</option><option value="anthropic">Anthropic · ANTHROPIC_API_KEY</option><option value="gemini">Gemini · GEMINI_API_KEY</option><option value="deepseek">DeepSeek · DEEPSEEK_API_KEY</option><option value="openrouter">OpenRouter · OPENROUTER_API_KEY</option><option value="ollama">Ollama local</option></select></label><label>Modelo<input name="model" required placeholder="Nome exato do modelo"></label><label>Prioridade<input name="priority" type="number" min="1" max="1000" value="1" required></label><label>Chamadas por mês (opcional)<input name="monthlyRequestLimit" type="number" min="1" max="1000000" step="1"></label><label>USD por 1 milhão de tokens de entrada<input name="inputUsdPerMillion" type="number" min="0" step="any"></label><label>USD por 1 milhão de tokens de saída<input name="outputUsdPerMillion" type="number" min="0" step="any"></label><label>Teto mensal estimado em USD<input name="monthlyCostLimitUsd" type="number" min="0.01" step="any"></label><button>Cadastrar modelo</button></form><small>Preços são informados por você. Confira a tabela do provedor; o custo exibido é estimado a partir dos tokens informados por ele. Para usar teto em USD, preencha ambos os preços.</small>
     <p id="hub-router-status"></p><ul id="hub-models"></ul>
     <form id="hub-model-test"><label>Teste do roteador<input name="prompt" maxlength="2000" required placeholder="Escreva uma pergunta"></label><button>Testar modelo</button></form><p id="hub-model-result"></p>
     <p id="projecthub-message" role="status"></p><h3>Agentes</h3><ul id="hub-agents"></ul><h3>Tarefas</h3><ul id="hub-tasks"></ul><h3>Vagas encontradas</h3><ul id="hub-jobs"></ul>`;
@@ -248,17 +251,38 @@ export function mountHubPanel(): void {
     (panel.querySelector('#hub-profile-status') as HTMLElement).textContent = profile.confirmedAt
       ? `Perfil confirmado em ${new Date(profile.confirmedAt).toLocaleString('pt-BR')}. A pontuação compara apenas termos explícitos do anúncio.`
       : 'Perfil ainda não confirmado. Nenhuma compatibilidade será pontuada.';
-    (panel.querySelector('#hub-router-status') as HTMLElement).textContent = `${router.usage.requests} resposta(s) · ${router.usage.inputTokens} tokens de entrada · ${router.usage.outputTokens} tokens de saída · custo não calculado${router.lastError ? ` · Última falha: ${router.lastError}` : ''}`;
+    (panel.querySelector('#hub-router-status') as HTMLElement).textContent = `${router.usage.requests} resposta(s) · ${router.usage.inputTokens} tokens de entrada · ${router.usage.outputTokens} tokens de saída · custo estimado USD ${(router.usage.estimatedCostUsd ?? 0).toFixed(4)}${router.usage.unpricedRequests ? ` · ${router.usage.unpricedRequests} resposta(s) sem preço ou contagem completa` : ''}${router.lastError ? ` · Última falha: ${router.lastError}` : ''}`;
     const modelList = panel.querySelector('#hub-models')!; modelList.replaceChildren();
     for (const model of router.models) {
-      const li = document.createElement('li'); li.textContent = `${model.provider} / ${model.model} · prioridade ${model.priority} · ${!model.enabled ? 'desativado' : model.provider === 'ollama' ? 'serviço local não verificado' : model.available ? 'credencial detectada; acesso não verificado' : 'credencial ausente'} `;
+      const li = document.createElement('li');
+      const limited = (model.monthlyRequestLimit !== undefined && model.monthlyUsage.requests >= model.monthlyRequestLimit) ||
+        (model.monthlyCostLimitUsd !== undefined && (model.monthlyUsage.unpricedRequests > 0 || model.monthlyUsage.estimatedCostUsd >= model.monthlyCostLimitUsd));
+      li.textContent = `${model.provider} / ${model.model} · prioridade ${model.priority} · ${!model.enabled ? 'desativado' : limited ? 'limite mensal atingido ou custo incerto' : model.provider === 'ollama' ? 'serviço local não verificado' : model.available ? 'credencial detectada; acesso não verificado' : 'credencial ausente'} · ${model.monthlyUsage.requests}${model.monthlyRequestLimit ? `/${model.monthlyRequestLimit}` : ''} chamada(s) em ${model.monthlyUsage.month} · ${model.monthlyUsage.inputTokens} entrada / ${model.monthlyUsage.outputTokens} saída · USD ${model.monthlyUsage.estimatedCostUsd.toFixed(4)} estimados `;
       const priority = document.createElement('input'); priority.type = 'number'; priority.min = '1'; priority.max = '1000'; priority.value = String(model.priority); priority.style.width = '5em'; priority.setAttribute('aria-label', `Prioridade de ${model.provider} / ${model.model}`);
       priority.onchange = () => void api(`/api/hub/router/models/${model.id}`, { priority: Number(priority.value) }, 'PATCH').then(refresh).catch(showError);
       const toggle = document.createElement('button'); toggle.textContent = model.enabled ? 'Desativar' : 'Ativar';
       toggle.onclick = () => void api(`/api/hub/router/models/${model.id}`, { enabled: !model.enabled }, 'PATCH').then(refresh).catch(showError);
       const remove = document.createElement('button'); remove.textContent = 'Remover';
       remove.onclick = () => void api(`/api/hub/router/models/${model.id}`, {}, 'DELETE').then(refresh).catch(showError);
-      li.append(priority, toggle, remove); modelList.append(li);
+      const details = document.createElement('details');
+      const summary = document.createElement('summary'); summary.textContent = 'Preços e limites'; details.append(summary);
+      const policyForm = document.createElement('form');
+      const fields = [
+        ['monthlyRequestLimit', 'Chamadas por mês', 1], ['inputUsdPerMillion', 'USD por 1 milhão de tokens de entrada', 0],
+        ['outputUsdPerMillion', 'USD por 1 milhão de tokens de saída', 0], ['monthlyCostLimitUsd', 'Teto mensal estimado em USD', 0.01],
+      ] as const;
+      for (const [name, label, min] of fields) {
+        const wrap = document.createElement('label'); wrap.textContent = label;
+        const input = document.createElement('input'); input.name = name; input.type = 'number'; input.min = String(min);
+        input.step = name === 'monthlyRequestLimit' ? '1' : 'any'; input.value = model[name] === undefined ? '' : String(model[name]);
+        wrap.append(input); policyForm.append(wrap);
+      }
+      const save = document.createElement('button'); save.textContent = 'Salvar limites'; policyForm.append(save);
+      policyForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(policyForm);
+        const values = Object.fromEntries(fields.map(([name]) => [name, data.get(name) === '' ? null : Number(data.get(name))]));
+        void api(`/api/hub/router/models/${model.id}`, values, 'PATCH').then(refresh).catch(showError); };
+      details.append(policyForm);
+      li.append(priority, toggle, remove, details); modelList.append(li);
     }
     (panel.querySelector('#hub-browser-status') as HTMLElement).textContent = browser.running
       ? `Navegador ${browser.headless ? 'em segundo plano' : 'visível'} · ${browser.manual ? 'controle manual ativo; automação suspensa' : 'automação disponível'}`
@@ -625,7 +649,9 @@ export function mountHubPanel(): void {
   browserForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(browserForm);
     void api('/api/hub/browser/pages', { url: data.get('url') }).then(refresh).catch(showError); };
   modelForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(modelForm);
-    void api('/api/hub/router/models', { provider: data.get('provider'), model: data.get('model'), priority: Number(data.get('priority')) })
+    const limits = Object.fromEntries(['monthlyRequestLimit', 'inputUsdPerMillion', 'outputUsdPerMillion', 'monthlyCostLimitUsd']
+      .filter((name) => data.get(name) !== '').map((name) => [name, Number(data.get(name))]));
+    void api('/api/hub/router/models', { provider: data.get('provider'), model: data.get('model'), priority: Number(data.get('priority')), ...limits })
       .then(() => { modelForm.reset(); message.textContent = 'Modelo cadastrado.'; return refresh(); }).catch(showError); };
   modelTest.onsubmit = (event) => { event.preventDefault(); const data = new FormData(modelTest);
     (panel.querySelector('#hub-model-result') as HTMLElement).textContent = 'Consultando modelo...';

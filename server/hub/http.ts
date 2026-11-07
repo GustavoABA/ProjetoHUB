@@ -30,6 +30,11 @@ function string(value: unknown, label: string): string {
   if (typeof value !== 'string') throw new Error(`${label} deve ser texto`);
   return value;
 }
+function optionalPolicyNumber(value: unknown, label: string): number | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${label} deve ser número`);
+  return value;
+}
 function fallbackIds(value: unknown, router?: ModelRouter): string[] {
   if (!Array.isArray(value) || value.length > 3 || value.some((item) => typeof item !== 'string')) throw new Error('Modelos de reserva inválidos');
   const known = new Set(router?.status().models.map((model) => model.id) ?? []);
@@ -226,12 +231,20 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     const action = path.slice('/api/hub/router/'.length);
     if (action === 'models' && req.method === 'POST') void readJson(req).then((raw) => {
       const body = record(raw);
-      sendJson(res, 201, router.add({ provider: string(body.provider, 'provedor') as Provider, model: string(body.model, 'modelo'), priority: Number(body.priority) }));
+      sendJson(res, 201, router.add({ provider: string(body.provider, 'provedor') as Provider, model: string(body.model, 'modelo'), priority: Number(body.priority),
+        ...(body.monthlyRequestLimit === undefined ? {} : { monthlyRequestLimit: optionalPolicyNumber(body.monthlyRequestLimit, 'limite de chamadas') as number }),
+        ...(body.monthlyCostLimitUsd === undefined ? {} : { monthlyCostLimitUsd: optionalPolicyNumber(body.monthlyCostLimitUsd, 'limite de custo') as number }),
+        ...(body.inputUsdPerMillion === undefined ? {} : { inputUsdPerMillion: optionalPolicyNumber(body.inputUsdPerMillion, 'preço de entrada') as number }),
+        ...(body.outputUsdPerMillion === undefined ? {} : { outputUsdPerMillion: optionalPolicyNumber(body.outputUsdPerMillion, 'preço de saída') as number }) }));
     }).catch((error) => fail(res, error));
     else if (action.startsWith('models/') && req.method === 'DELETE') sendJson(res, router.remove(action.slice(7)) ? 200 : 404, { ok: true });
     else if (action.startsWith('models/') && req.method === 'PATCH') void readJson(req).then((raw) => {
       const body = record(raw);
-      sendJson(res, 200, router.update(action.slice(7), { ...(body.priority !== undefined ? { priority: Number(body.priority) } : {}), ...(body.enabled !== undefined ? { enabled: body.enabled as boolean } : {}) }));
+      sendJson(res, 200, router.update(action.slice(7), { ...(body.priority !== undefined ? { priority: Number(body.priority) } : {}), ...(body.enabled !== undefined ? { enabled: body.enabled as boolean } : {}),
+        ...(body.monthlyRequestLimit === undefined ? {} : { monthlyRequestLimit: optionalPolicyNumber(body.monthlyRequestLimit, 'limite de chamadas') }),
+        ...(body.monthlyCostLimitUsd === undefined ? {} : { monthlyCostLimitUsd: optionalPolicyNumber(body.monthlyCostLimitUsd, 'limite de custo') }),
+        ...(body.inputUsdPerMillion === undefined ? {} : { inputUsdPerMillion: optionalPolicyNumber(body.inputUsdPerMillion, 'preço de entrada') }),
+        ...(body.outputUsdPerMillion === undefined ? {} : { outputUsdPerMillion: optionalPolicyNumber(body.outputUsdPerMillion, 'preço de saída') }) }));
     }).catch((error) => fail(res, error));
     else if (action === 'complete' && req.method === 'POST') void readJson(req).then((raw) => {
       const body = record(raw);

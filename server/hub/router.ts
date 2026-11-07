@@ -5,8 +5,12 @@ import type { ProviderCredentials } from './provider-credentials';
 
 export type Provider = 'openai' | 'anthropic' | 'gemini' | 'deepseek' | 'openrouter' | 'ollama';
 export type Message = { role: 'system' | 'user' | 'assistant'; content: string };
-export type Model = { id: string; provider: Provider; model: string; priority: number; enabled: boolean; createdAt: string };
-type State = { version: 1; models: Model[]; usage: { inputTokens: number; outputTokens: number; requests: number }; lastError?: string };
+export type Model = { id: string; provider: Provider; model: string; priority: number; enabled: boolean; createdAt: string;
+  monthlyRequestLimit?: number; monthlyCostLimitUsd?: number; inputUsdPerMillion?: number; outputUsdPerMillion?: number };
+type ModelUsage = { month: string; requests: number; inputTokens: number; outputTokens: number; estimatedCostUsd: number; unpricedRequests: number };
+type UsagePolicy = Pick<Model, 'monthlyRequestLimit' | 'monthlyCostLimitUsd' | 'inputUsdPerMillion' | 'outputUsdPerMillion'>;
+type UsagePolicyChanges = { [K in keyof UsagePolicy]?: number | null };
+type State = { version: 1; models: Model[]; usage: { inputTokens: number; outputTokens: number; requests: number; estimatedCostUsd?: number; unpricedRequests?: number }; modelUsage?: Record<string, ModelUsage>; lastError?: string };
 export type Completion = { text: string; provider: Provider; model: string; inputTokens: number | null; outputTokens: number | null };
 const endpoints: Record<Provider, string> = {
   openai: 'https://api.openai.com/v1/chat/completions',
@@ -20,6 +24,16 @@ const keys: Record<Provider, string | null> = { openai: 'OPENAI_API_KEY', anthro
 const providers = Object.keys(endpoints) as Provider[];
 
 function tokenCount(value: unknown): number | null { return Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : null; }
+function emptyUsage(month: string): ModelUsage { return { month, requests: 0, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, unpricedRequests: 0 }; }
+function validateUsagePolicy(model: Model): void {
+  const { monthlyRequestLimit, monthlyCostLimitUsd, inputUsdPerMillion, outputUsdPerMillion } = model;
+  if (monthlyRequestLimit !== undefined && (!Number.isSafeInteger(monthlyRequestLimit) || monthlyRequestLimit < 1 || monthlyRequestLimit > 1_000_000)) throw new Error('Limite mensal de chamadas inválido');
+  for (const amount of [monthlyCostLimitUsd, inputUsdPerMillion, outputUsdPerMillion]) {
+    if (amount !== undefined && (!Number.isFinite(amount) || amount < 0 || amount > 1_000_000)) throw new Error('Valor em USD inválido');
+  }
+  if (monthlyCostLimitUsd !== undefined && (monthlyCostLimitUsd === 0 || model.provider === 'ollama' ||
+    !inputUsdPerMillion || !outputUsdPerMillion)) throw new Error('Limite de custo exige preços positivos de entrada e saída de modelo externo');
+}
 function validMessages(messages: Message[]): void {
   if (!Array.isArray(messages) || messages.length === 0 || messages.length > 50 || messages.some((m) => !m || !['system', 'user', 'assistant'].includes(m.role) || typeof m.content !== 'string' || !m.content.trim() || m.content.length > 40_000)) throw new Error('Mensagens inválidas');
 }
@@ -40,8 +54,42 @@ export class ModelRouter {
     writeFileSync(temp, JSON.stringify(this.state, null, 2));
     renameSync(temp, this.file);
   }
+  private monthlyUsage(id: string, month = new Date().toISOString().slice(0, 7)): ModelUsage {
+    const saved = this.state.modelUsage?.[id];
+    return saved?.month === month ? { ...saved } : emptyUsage(month);
+  }
+  private canUse(model: Model): boolean {
+    const used = this.monthlyUsage(model.id);
+    return model.enabled && (this.credentials?.configured(model.provider) ?? (keys[model.provider] === null || Boolean(this.env[keys[model.provider]!]))) &&
+      (model.monthlyRequestLimit === undefined || used.requests < model.monthlyRequestLimit) &&
+      (model.monthlyCostLimitUsd === undefined || (used.unpricedRequests === 0 && used.estimatedCostUsd < model.monthlyCostLimitUsd));
+  }
+  private reserve(model: Model): void {
+    const usage = this.monthlyUsage(model.id);
+    usage.requests++;
+    this.state.modelUsage ??= {};
+    this.state.modelUsage[model.id] = usage;
+    this.save();
+  }
+  private recordUsage(model: Model, inputTokens: number | null, outputTokens: number | null): void {
+    const usage = this.monthlyUsage(model.id);
+    usage.inputTokens += inputTokens ?? 0;
+    usage.outputTokens += outputTokens ?? 0;
+    if (inputTokens === null || outputTokens === null || (model.provider !== 'ollama' &&
+      (model.inputUsdPerMillion === undefined || model.outputUsdPerMillion === undefined))) usage.unpricedRequests++;
+    else {
+      const cost = (inputTokens * (model.inputUsdPerMillion ?? 0) + outputTokens * (model.outputUsdPerMillion ?? 0)) / 1_000_000;
+      usage.estimatedCostUsd += cost;
+      this.state.usage.estimatedCostUsd = (this.state.usage.estimatedCostUsd ?? 0) + cost;
+    }
+    if (inputTokens === null || outputTokens === null || (model.provider !== 'ollama' &&
+      (model.inputUsdPerMillion === undefined || model.outputUsdPerMillion === undefined)))
+      this.state.usage.unpricedRequests = (this.state.usage.unpricedRequests ?? 0) + 1;
+    this.state.modelUsage ??= {};
+    this.state.modelUsage[model.id] = usage;
+  }
   status() {
-    return { models: this.state.models.map((m) => ({ ...m, available: m.enabled && (this.credentials?.configured(m.provider) ?? (keys[m.provider] === null || Boolean(this.env[keys[m.provider]!]))) })), usage: { ...this.state.usage }, lastError: this.state.lastError };
+    return { models: this.state.models.map((m) => ({ ...m, available: this.canUse(m), monthlyUsage: this.monthlyUsage(m.id) })), usage: { ...this.state.usage }, lastError: this.state.lastError };
   }
   /** Register the smallest installed local model only when the user has not configured Ollama. */
   async discoverLocalModel(): Promise<Model | undefined> {
@@ -60,12 +108,17 @@ export class ModelRouter {
       return models[0] ? this.add({ provider: 'ollama', model: models[0].name, priority: 100 }) : undefined;
     } catch { return undefined; }
   }
-  add(input: { provider: Provider; model: string; priority: number; enabled?: boolean }): Model {
+  add(input: { provider: Provider; model: string; priority: number; enabled?: boolean } & UsagePolicy): Model {
     if (!providers.includes(input.provider)) throw new Error('Provedor desconhecido');
     if (typeof input.model !== 'string' || !/^[\w./:-]{1,150}$/.test(input.model)) throw new Error('Nome de modelo inválido');
     if (!Number.isSafeInteger(input.priority) || input.priority < 1 || input.priority > 1000) throw new Error('Prioridade inválida');
     if (this.state.models.some((m) => m.provider === input.provider && m.model === input.model)) throw new Error('Modelo já cadastrado');
-    const model: Model = { id: randomUUID(), provider: input.provider, model: input.model, priority: input.priority, enabled: input.enabled ?? true, createdAt: new Date().toISOString() };
+    const model: Model = { id: randomUUID(), provider: input.provider, model: input.model, priority: input.priority, enabled: input.enabled ?? true, createdAt: new Date().toISOString(),
+      ...(input.monthlyRequestLimit === undefined ? {} : { monthlyRequestLimit: input.monthlyRequestLimit }),
+      ...(input.monthlyCostLimitUsd === undefined ? {} : { monthlyCostLimitUsd: input.monthlyCostLimitUsd }),
+      ...(input.inputUsdPerMillion === undefined ? {} : { inputUsdPerMillion: input.inputUsdPerMillion }),
+      ...(input.outputUsdPerMillion === undefined ? {} : { outputUsdPerMillion: input.outputUsdPerMillion }) };
+    validateUsagePolicy(model);
     this.state.models.push(model); this.save(); return model;
   }
   remove(id: string): boolean {
@@ -74,17 +127,24 @@ export class ModelRouter {
     if (before !== this.state.models.length) this.save();
     return before !== this.state.models.length;
   }
-  update(id: string, changes: { priority?: number; enabled?: boolean }): Model {
+  update(id: string, changes: { priority?: number; enabled?: boolean } & UsagePolicyChanges): Model {
     const model = this.state.models.find((m) => m.id === id);
     if (!model) throw new Error('Modelo não encontrado');
+    const next: Model = { ...model, ...changes } as Model;
+    for (const key of ['monthlyRequestLimit', 'monthlyCostLimitUsd', 'inputUsdPerMillion', 'outputUsdPerMillion'] as const) {
+      if (changes[key] === null) delete next[key];
+    }
     if (changes.priority !== undefined) {
       if (!Number.isSafeInteger(changes.priority) || changes.priority < 1 || changes.priority > 1000) throw new Error('Prioridade inválida');
-      model.priority = changes.priority;
     }
     if (changes.enabled !== undefined) {
       if (typeof changes.enabled !== 'boolean') throw new Error('Estado inválido');
-      model.enabled = changes.enabled;
     }
+    validateUsagePolicy(next);
+    for (const key of ['monthlyRequestLimit', 'monthlyCostLimitUsd', 'inputUsdPerMillion', 'outputUsdPerMillion'] as const) {
+      if (changes[key] === null) delete model[key];
+    }
+    Object.assign(model, next);
     this.save(); return { ...model };
   }
   async complete(messages: Message[], onlyProvider?: Provider, onlyModelId?: string, fallbackModelIds?: string[]): Promise<Completion> {
@@ -94,12 +154,13 @@ export class ModelRouter {
       fallbackModelIds.some((id) => typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) ||
       new Set([onlyModelId, ...fallbackModelIds]).size !== fallbackModelIds.length + 1)) throw new Error('Modelos de reserva inválidos');
     const orderedIds = onlyModelId ? [onlyModelId, ...(fallbackModelIds ?? [])] : undefined;
-    const available = this.state.models.filter((m) => m.enabled && (!onlyProvider || m.provider === onlyProvider) &&
-      (!orderedIds || orderedIds.includes(m.id)) && (this.credentials?.configured(m.provider) ?? (keys[m.provider] === null || this.env[keys[m.provider]!]))).sort((a, b) =>
+    const available = this.state.models.filter((m) => this.canUse(m) && (!onlyProvider || m.provider === onlyProvider) &&
+      (!orderedIds || orderedIds.includes(m.id))).sort((a, b) =>
       orderedIds ? orderedIds.indexOf(a.id) - orderedIds.indexOf(b.id) : a.priority - b.priority);
     if (onlyModelId && !available.length) throw new Error('Modelo selecionado indisponível; verifique a credencial e o estado do modelo');
     if (!available.length) throw new Error('Nenhum modelo disponível: cadastre um modelo e configure a credencial do provedor');
     for (const model of available) {
+      if (!this.canUse(model)) continue;
       let key: string | undefined;
       try { key = this.credentials ? await this.credentials.get(model.provider) : keys[model.provider] ? this.env[keys[model.provider]!] : undefined; }
       catch { this.state.lastError = `${model.provider}: credencial local indisponível`; this.save(); continue; }
@@ -111,6 +172,7 @@ export class ModelRouter {
       else if (key) headers.Authorization = `Bearer ${key}`;
       if (model.provider === 'gemini') headers['x-goog-api-client'] = 'projecthub/0.1';
       try {
+        this.reserve(model);
         const response = await this.fetcher(endpoints[model.provider], { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(model.provider === 'ollama' ? 180_000 : 60_000) });
         if (!response.ok) {
           this.state.lastError = `${model.provider}: HTTP ${response.status}`; this.save();
@@ -123,6 +185,7 @@ export class ModelRouter {
         if (typeof text !== 'string' || !text.trim()) throw new Error(`${model.provider}: resposta sem texto`);
         const inputTokens = tokenCount(anthropic ? data.usage?.input_tokens : data.usage?.prompt_tokens);
         const outputTokens = tokenCount(anthropic ? data.usage?.output_tokens : data.usage?.completion_tokens);
+        this.recordUsage(model, inputTokens, outputTokens);
         this.state.usage.inputTokens += inputTokens ?? 0; this.state.usage.outputTokens += outputTokens ?? 0; this.state.usage.requests++;
         this.state.lastError = undefined; this.save();
         return { text, provider: model.provider, model: model.model, inputTokens, outputTokens };

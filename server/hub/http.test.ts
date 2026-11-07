@@ -470,6 +470,30 @@ it('analyzes a sourced vacancy and hides a stale score after profile changes', a
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 
+it('configures model usage policies through the local HUD API', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
+  const agents = new HubStore(join(dir, 'state.json'));
+  const router = new ModelRouter(join(dir, 'router.json'));
+  const server = http.createServer((req, res) => handleHubRoute(req, res, new URL(req.url!, 'http://localhost'),
+    agents, undefined, fetch, undefined, router));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const base = `http://127.0.0.1:${address.port}`;
+    const request = (path: string, method: string, body: unknown) => fetch(base + path, { method,
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const created = await request('/api/hub/router/models', 'POST', { provider: 'openai', model: 'gpt-test', priority: 1,
+      monthlyRequestLimit: 10, inputUsdPerMillion: 1, outputUsdPerMillion: 2, monthlyCostLimitUsd: 5 });
+    expect(created.status).toBe(201);
+    const model = await created.json();
+    expect(model).toMatchObject({ monthlyRequestLimit: 10, monthlyCostLimitUsd: 5 });
+    expect((await request(`/api/hub/router/models/${model.id}`, 'PATCH', { monthlyRequestLimit: 20 })).status).toBe(200);
+    expect((await (await fetch(base + '/api/hub/router')).json()).models[0]).toMatchObject({ monthlyRequestLimit: 20 });
+    expect((await request(`/api/hub/router/models/${model.id}`, 'PATCH', { monthlyRequestLimit: 0 })).status).toBe(400);
+    expect(router.status().models[0].monthlyRequestLimit).toBe(20);
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
 it('configures logical WhatsApp numbers and shows a webhook token only once', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
   const agents = new HubStore(join(dir, 'state.json'));

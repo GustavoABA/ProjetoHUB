@@ -25,6 +25,69 @@ it('preserves context during recoverable fallback and persists token totals', as
   expect(new ModelRouter(r.file, fetcher, { DEEPSEEK_API_KEY: 'secret-b' }).status().usage).toMatchObject({ inputTokens: 4, outputTokens: 2 });
 });
 
+it('enforces a persisted monthly request limit and falls back to another authorized model', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }],
+    usage: { prompt_tokens: 10, completion_tokens: 5 } }), { status: 200 }));
+  const r = router(fetcher, { OPENAI_API_KEY: 'first', DEEPSEEK_API_KEY: 'second' });
+  const first = r.add({ provider: 'openai', model: 'first', priority: 1, monthlyRequestLimit: 1 });
+  const second = r.add({ provider: 'deepseek', model: 'second', priority: 2 });
+  const prompt = [{ role: 'user' as const, content: 'Olá' }];
+  await r.complete(prompt, undefined, first.id, [second.id]);
+  expect(r.status().models.find((model) => model.id === first.id)).toMatchObject({ available: false, monthlyRequestLimit: 1, monthlyUsage: { requests: 1, inputTokens: 10, outputTokens: 5 } });
+  expect(await r.complete(prompt, undefined, first.id, [second.id])).toMatchObject({ model: 'second' });
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(new ModelRouter(r.file, fetcher, { OPENAI_API_KEY: 'first' }).status().models.find((model) => model.id === first.id)?.monthlyUsage.requests).toBe(1);
+});
+
+it('reserves the last monthly call before network I/O so concurrent tasks cannot both use it', async () => {
+  let release!: (response: Response) => void;
+  const pending = new Promise<Response>((resolve) => { release = resolve; });
+  const fetcher = vi.fn<typeof fetch>()
+    .mockImplementationOnce(async () => pending)
+    .mockImplementationOnce(async () => new Response(JSON.stringify({ choices: [{ message: { content: 'Reserva' } }] }), { status: 200 }));
+  const r = router(fetcher, { OPENAI_API_KEY: 'first', DEEPSEEK_API_KEY: 'second' });
+  const first = r.add({ provider: 'openai', model: 'first', priority: 1, monthlyRequestLimit: 1 });
+  const second = r.add({ provider: 'deepseek', model: 'second', priority: 2 });
+  const messages = [{ role: 'user' as const, content: 'Olá' }];
+  const firstCall = r.complete(messages, undefined, first.id, [second.id]);
+  await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+  expect(await r.complete(messages, undefined, first.id, [second.id])).toMatchObject({ model: 'second' });
+  release(new Response(JSON.stringify({ choices: [{ message: { content: 'Principal' } }] }), { status: 200 }));
+  expect(await firstCall).toMatchObject({ model: 'first' });
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
+it('blocks further paid calls at an estimated monthly cost threshold', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }],
+    usage: { prompt_tokens: 1_000_000, completion_tokens: 0 } }), { status: 200 }));
+  const r = router(fetcher, { OPENAI_API_KEY: 'secret' });
+  const model = r.add({ provider: 'openai', model: 'priced', priority: 1,
+    inputUsdPerMillion: 2, outputUsdPerMillion: 4, monthlyCostLimitUsd: 2 });
+  await r.complete([{ role: 'user', content: 'Olá' }]);
+  expect(r.status().models.find((item) => item.id === model.id)?.monthlyUsage).toMatchObject({ estimatedCostUsd: 2, unpricedRequests: 0 });
+  await expect(r.complete([{ role: 'user', content: 'Olá' }])).rejects.toThrow('Nenhum modelo disponível');
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it('does not claim a cost estimate when token counts are missing', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }] }), { status: 200 }));
+  const r = router(fetcher, { OPENAI_API_KEY: 'secret' });
+  const model = r.add({ provider: 'openai', model: 'priced', priority: 1,
+    inputUsdPerMillion: 2, outputUsdPerMillion: 4, monthlyCostLimitUsd: 3 });
+  await r.complete([{ role: 'user', content: 'Olá' }]);
+  expect(r.status().models.find((item) => item.id === model.id)?.monthlyUsage).toMatchObject({ estimatedCostUsd: 0, unpricedRequests: 1 });
+  await expect(r.complete([{ role: 'user', content: 'Olá' }])).rejects.toThrow('Nenhum modelo disponível');
+});
+
+it('validates usage policies without changing an existing model on invalid edits', () => {
+  const r = router(vi.fn<typeof fetch>());
+  expect(() => r.add({ provider: 'openai', model: 'bad', priority: 1, monthlyRequestLimit: 0 })).toThrow();
+  const model = r.add({ provider: 'openai', model: 'good', priority: 1 });
+  expect(() => r.update(model.id, { monthlyCostLimitUsd: 2 })).toThrow();
+  expect(r.status().models.find((item) => item.id === model.id)?.monthlyCostLimitUsd).toBeUndefined();
+  expect(r.update(model.id, { inputUsdPerMillion: 1, outputUsdPerMillion: 2, monthlyCostLimitUsd: 3 })).toMatchObject({ monthlyCostLimitUsd: 3 });
+});
+
 it('skips missing credentials and reports when no model is available', async () => {
   const fetcher = vi.fn<typeof fetch>(); const r = router(fetcher);
   r.add({ provider: 'openai', model: 'gpt-test', priority: 1 });
