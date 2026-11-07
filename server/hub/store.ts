@@ -25,6 +25,8 @@ export interface HubTask {
   result?: string;
   executionProvider?: 'ollama';
   executionModel?: string;
+  localRetryCount?: number;
+  nextAttemptAt?: string;
 }
 export interface HubQuestion {
   id: string;
@@ -130,8 +132,37 @@ export class HubStore {
     if (!task) throw new Error('Tarefa não encontrada');
     task.status = status;
     task.updatedAt = new Date().toISOString();
+    delete task.nextAttemptAt;
     if (error) task.error = error;
     else delete task.error;
+    this.save();
+    return structuredClone(task);
+  }
+
+  scheduleLocalRetry(id: string, error: string, now = Date.now()): HubTask {
+    const task = this.state.tasks.find((item) => item.id === id);
+    if (!task || task.status !== 'dispatching') throw new Error('Tarefa não está em execução local');
+    const attempt = (task.localRetryCount ?? 0) + 1;
+    task.localRetryCount = attempt;
+    task.updatedAt = new Date(now).toISOString();
+    task.error = `Ollama: ${error}`.slice(0, 500);
+    if (attempt >= 5) { task.status = 'failed'; delete task.nextAttemptAt; }
+    else {
+      task.status = this.agent(task.agentId)?.codexThread ? 'queued' : 'unassigned';
+      task.nextAttemptAt = new Date(now + 15_000 * 2 ** (attempt - 1)).toISOString();
+    }
+    this.save();
+    return structuredClone(task);
+  }
+
+  retryTask(id: string): HubTask {
+    const task = this.state.tasks.find((item) => item.id === id);
+    if (!task || !['failed', 'interrupted'].includes(task.status)) throw new Error('Tarefa não pode ser repetida neste estado');
+    const agent = this.agent(task.agentId);
+    if (!agent || agent.status === 'ended') throw new Error('Agente encerrado não aceita retomada');
+    task.status = agent.codexThread ? 'queued' : 'unassigned';
+    task.updatedAt = new Date().toISOString();
+    delete task.error; delete task.nextAttemptAt; delete task.localRetryCount;
     this.save();
     return structuredClone(task);
   }
@@ -145,7 +176,7 @@ export class HubStore {
     task.executionModel = model;
     task.status = 'result_ready';
     task.updatedAt = new Date().toISOString();
-    delete task.error;
+    delete task.error; delete task.nextAttemptAt;
     this.save();
     return structuredClone(task);
   }

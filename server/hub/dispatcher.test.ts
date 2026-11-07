@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { HubStore } from './store';
 import { dispatchNext, dispatchWithLocalFallback } from './dispatcher';
+import { ModelRouter } from './router';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -51,4 +52,37 @@ it('falls back only for a recognized Codex availability error', async () => {
   const task = store.createTask({ agentId: agent.id, instruction: 'Analise' });
   await dispatchWithLocalFallback(store, async () => ({ ok: false, error: 'Codex offline' }), async () => ({ text: 'Análise local', model: 'qwen2.5:1.5b' }));
   expect(store.listTasks().find((item) => item.id === task.id)).toMatchObject({ status: 'result_ready', executionProvider: 'ollama' });
+});
+
+it('backs off after a temporary Ollama outage and keeps other tasks moving', async () => {
+  const { store, agent } = fixture();
+  const first = store.createTask({ agentId: agent.id, instruction: 'Primeira' });
+  const second = store.createTask({ agentId: agent.id, instruction: 'Segunda' });
+  const now = Date.parse('2026-11-07T00:00:00Z');
+  await dispatchWithLocalFallback(store, undefined, async () => { throw new Error('Ollama offline'); }, now);
+  expect(store.listTasks().find((item) => item.id === first.id)).toMatchObject({ status: 'queued', localRetryCount: 1 });
+  expect(new HubStore(join(dirs[0], 'state.json')).listTasks().find((item) => item.id === first.id)?.nextAttemptAt).toBeDefined();
+  await dispatchWithLocalFallback(store, undefined, async () => ({ text: 'Outra resposta', model: 'local' }), now + 1_000);
+  expect(store.listTasks().find((item) => item.id === second.id)?.status).toBe('result_ready');
+  await dispatchWithLocalFallback(store, undefined, async () => ({ text: 'Recuperado', model: 'local' }), now + 16_000);
+  expect(store.listTasks().find((item) => item.id === first.id)).toMatchObject({ status: 'result_ready', result: 'Recuperado' });
+});
+
+it('does not retry a nonavailability Ollama error automatically', async () => {
+  const { store, agent } = fixture();
+  const task = store.createTask({ agentId: agent.id, instruction: 'Primeira' });
+  await dispatchWithLocalFallback(store, undefined, async () => { throw new Error('Resposta inválida'); });
+  expect(store.listTasks().find((item) => item.id === task.id)?.status).toBe('failed');
+});
+
+it('retries the actual router result after an Ollama HTTP 503', async () => {
+  const { store, agent } = fixture();
+  const task = store.createTask({ agentId: agent.id, instruction: 'Analise' });
+  const router = new ModelRouter(join(dirs[0], 'router.json'), async () => new Response('', { status: 503 }));
+  router.add({ provider: 'ollama', model: 'local-test', priority: 1 });
+  await dispatchWithLocalFallback(store, undefined, async (instruction) => {
+    const result = await router.complete([{ role: 'user', content: instruction }], 'ollama');
+    return { text: result.text, model: result.model };
+  });
+  expect(store.listTasks().find((item) => item.id === task.id)).toMatchObject({ status: 'queued', localRetryCount: 1 });
 });

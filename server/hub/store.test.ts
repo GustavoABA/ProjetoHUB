@@ -60,3 +60,21 @@ it('installs the job-search team once as inactive configurations', () => {
   expect(agents.filter((a) => a.parentId === main!.id)).toHaveLength(6);
   expect(agents.every((a) => !a.codexThread)).toBe(true);
 });
+
+it('limits local availability retries and allows an explicit restart', () => {
+  const file = fixture();
+  const store = new HubStore(file);
+  const agent = store.createAgent({ name: 'Local', objective: 'Analisar' });
+  const task = store.createTask({ agentId: agent.id, instruction: 'Analisar vaga' });
+  const now = Date.parse('2026-11-07T00:00:00Z');
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    store.setTaskStatus(task.id, 'dispatching');
+    const result = store.scheduleLocalRetry(task.id, 'offline', now);
+    expect(result.localRetryCount).toBe(attempt);
+    expect(result.status).toBe(attempt === 5 ? 'failed' : 'unassigned');
+  }
+  expect(new HubStore(file).listTasks()[0].status).toBe('failed');
+  expect(store.retryTask(task.id)).toMatchObject({ status: 'unassigned' });
+  expect(store.listTasks()[0].localRetryCount).toBeUndefined();
+  expect(() => store.retryTask(task.id)).toThrow();
+});

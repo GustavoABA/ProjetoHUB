@@ -1,5 +1,5 @@
 type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; status?: 'active' | 'paused' | 'ended' };
-type Task = { id: string; agentId: string; instruction: string; status: string; error?: string; result?: string; executionProvider?: string; executionModel?: string };
+type Task = { id: string; agentId: string; instruction: string; status: string; error?: string; result?: string; executionProvider?: string; executionModel?: string; localRetryCount?: number; nextAttemptAt?: string };
 type Session = { name: string; sessionId: string; account: string; provider: string };
 type Source = { label: string; path: string; provider: string };
 type Job = { id: string; title: string; company: string; location: string; source: string; originalUrl: string; salary?: string; compatibility: number | null; justification: string; requirements: string[]; analysisModel?: string; analyzedAt?: string; applicationStatus: string };
@@ -202,11 +202,20 @@ export function mountHubPanel(): void {
     const taskList = panel.querySelector('#hub-tasks')!; taskList.replaceChildren();
     for (const task of tasks.slice().reverse()) {
       if (['queued', 'unassigned', 'paused'].includes(task.status)) option(questionTasks, task.id, `${task.instruction.slice(0, 70)} · ${task.id.slice(0, 8)}`);
-      const li = document.createElement('li'); li.textContent = `${agents.find((a) => a.id === task.agentId)?.name ?? 'Agente removido'}: ${task.instruction} — ${statusLabel[task.status] ?? task.status}${task.error ? ` (${task.error})` : ''} `;
+      const li = document.createElement('li'); li.textContent = `${agents.find((a) => a.id === task.agentId)?.name ?? 'Agente removido'}: ${task.instruction} — ${statusLabel[task.status] ?? task.status}${task.nextAttemptAt ? ` · nova tentativa após ${new Date(task.nextAttemptAt).toLocaleString('pt-BR')}` : ''}${task.error ? ` (${task.error})` : ''} `;
       if (task.status === 'queued' || task.status === 'unassigned' || task.status === 'paused') {
         const button = document.createElement('button'); button.textContent = task.status === 'paused' ? 'Retomar' : 'Pausar';
         button.onclick = () => void api(`/api/hub/tasks/${task.id}/${task.status === 'paused' ? 'resume' : 'pause'}`, {}).then(refresh).catch(showError);
         li.append(button);
+      }
+      if (task.status === 'failed' || task.status === 'interrupted') {
+        const retry = document.createElement('button'); retry.textContent = 'Repetir tarefa';
+        retry.onclick = () => {
+          const agent = agents.find((item) => item.id === task.agentId);
+          if ((agent?.codexThread || task.status === 'interrupted') && !window.confirm('Repetir esta tarefa pode reenviar a instrução ao Codex. Confira antes se ela já foi executada. Continuar?')) return;
+          void api(`/api/hub/tasks/${task.id}/retry`, {}).then(refresh).catch(showError);
+        };
+        li.append(retry);
       }
       if (task.result) { const detail = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = `Resposta do ${task.executionProvider ?? 'modelo'} (${task.executionModel ?? 'modelo não informado'})`; const output = document.createElement('pre'); output.textContent = task.result; output.style.whiteSpace = 'pre-wrap'; detail.append(summary, output); li.append(detail); }
       taskList.append(li);

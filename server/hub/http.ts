@@ -365,7 +365,7 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
-  const action = /^\/api\/hub\/tasks\/([0-9a-f-]+)\/(pause|resume)$/.exec(path);
+  const action = /^\/api\/hub\/tasks\/([0-9a-f-]+)\/(pause|resume|retry)$/.exec(path);
   if (action) {
     if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
     else {
@@ -375,6 +375,7 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
         if (!task) sendJson(res, 404, { error: 'Tarefa não encontrada' });
         else if (action[2] === 'pause' && ['queued', 'unassigned'].includes(task.status)) sendJson(res, 200, store.setTaskStatus(task.id, 'paused'));
         else if (action[2] === 'resume' && task.status === 'paused') sendJson(res, 200, store.setTaskStatus(task.id, store.agent(task.agentId)?.codexThread ? 'queued' : 'unassigned'));
+        else if (action[2] === 'retry' && ['failed', 'interrupted'].includes(task.status)) sendJson(res, 200, store.retryTask(task.id));
         else sendJson(res, 409, { error: 'Ação incompatível com o estado da tarefa' });
       } catch (error) { fail(res, error); }
     }

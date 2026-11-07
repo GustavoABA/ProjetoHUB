@@ -95,6 +95,9 @@ it('creates and lists agents and tasks over local HTTP', async () => {
     expect((await task.json()).status).toBe('unassigned');
     expect((await (await fetch(base + '/api/hub/agents')).json())).toHaveLength(1);
     expect((await (await fetch(base + '/api/hub/tasks')).json())).toHaveLength(1);
+    store.setTaskStatus(store.listTasks()[0].id, 'failed', 'Ollama offline');
+    expect((await post(`/api/hub/tasks/${store.listTasks()[0].id}/retry`, {})).status).toBe(200);
+    expect(store.listTasks()[0].status).toBe('unassigned');
     expect((await post('/api/hub/tasks', { agentId: 'missing', instruction: 'Buscar' })).status).toBe(400);
     const updated = await fetch(base + `/api/hub/agents/${agent.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ objective: 'Avaliar vagas' }) });
     expect((await updated.json()).objective).toBe('Avaliar vagas');
