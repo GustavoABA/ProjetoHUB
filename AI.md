@@ -282,3 +282,9 @@ Os números continuam para configuração posterior no HUD, conforme escolha do 
 
 **Verificação desta atualização:** nove testes direcionados de comunicação e WhatsApp passaram; `npm test` passou com 2.005 testes aprovados e 18 ignorados em 188 arquivos. Checagem de tipos, build e `git diff --check` passaram. O serviço foi compilado, mas não foi iniciado com uma Evolution real nesta rodada.
 
+## Atualização: resposta da pergunta no despacho retomado
+
+Quando uma resposta pendente chega pelo webhook ou é registrada pelo painel, o serviço volta a colocar apenas a tarefa relacionada na fila. O despachante agora acrescenta as perguntas respondidas e suas respostas ao texto enviado ao Codex ou ao modelo local, mantendo a instrução original persistida sem alteração. A resposta é rotulada como dado do usuário. Tarefas diferentes não recebem esse contexto. Os testes retomaram tarefas locais após reconstruir o store e verificaram o texto entregue ao Codex simulado; `sent` continua significando apenas aceitação pela fila, não conclusão. Ações especializadas que usam a instrução como ID de vaga continuam recebendo esse ID sem alteração; associar respostas de formulários às candidaturas ainda requer fluxo próprio.
+
+**Verificação desta atualização:** 23 testes direcionados de despacho e comunicação passaram; `npm test` passou com 2.007 testes aprovados e 18 ignorados em 188 arquivos. Checagem de tipos, build e `git diff --check` passaram. Nenhuma sessão Codex nem conversa WhatsApp real foi acionada.
+

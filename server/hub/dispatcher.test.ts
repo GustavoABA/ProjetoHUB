@@ -65,6 +65,38 @@ it('uses Ollama when Codex is offline and persists a reviewable text result', as
   });
 });
 
+it('passes only the related confirmed answer to a resumed local task after restart', async () => {
+  const { store } = fixture();
+  const agent = store.createAgent({ name: 'Local', objective: 'Responder' });
+  const first = store.createTask({ agentId: agent.id, instruction: 'Preparar resposta' });
+  store.createTask({ agentId: agent.id, instruction: 'Outra tarefa' });
+  const question = store.askQuestion({ taskId: first.id, text: 'Qual o horário?' });
+  store.answerQuestion(question.id, 'Após as 14h', 'WA-001');
+  const recovered = new HubStore(join(dirs[0], 'state.json'));
+  const sent: string[] = [];
+  const local = async (instruction: string) => { sent.push(instruction); return { text: 'Resposta', model: 'local' }; };
+  await dispatchWithLocalFallback(recovered, undefined, local);
+  await dispatchWithLocalFallback(recovered, undefined, local);
+  expect(sent[0]).toContain('Preparar resposta');
+  expect(sent[0]).toContain('Qual o horário?');
+  expect(sent[0]).toContain('Após as 14h');
+  expect(sent[1]).toBe('Outra tarefa');
+  expect(recovered.listTasks()[0].instruction).toBe('Preparar resposta');
+});
+
+it('passes a confirmed answer to the linked Codex session without claiming completion', async () => {
+  const { store, agent } = fixture();
+  const task = store.createTask({ agentId: agent.id, instruction: 'Preparar candidatura' });
+  const question = store.askQuestion({ taskId: task.id, text: 'Qual a disponibilidade?' });
+  store.answerQuestion(question.id, 'Imediata', 'WA-002');
+  const sent: string[] = [];
+  await dispatchNext(store, async (job) => { sent.push(job.text); return { ok: true }; });
+  expect(sent[0]).toContain('Preparar candidatura');
+  expect(sent[0]).toContain('Qual a disponibilidade?');
+  expect(sent[0]).toContain('Imediata');
+  expect(store.listTasks()[0].status).toBe('sent');
+});
+
 it('passes an agent model selection to execution and records the provider that actually answered', async () => {
   const { store } = fixture();
   const modelId = '12345678-1234-1234-1234-123456789013';
