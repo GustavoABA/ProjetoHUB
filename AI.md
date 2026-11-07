@@ -254,3 +254,7 @@ O registro `sent` significa apenas que a instrução foi aceita pela interface d
 
 **Verificação desta atualização:** 46 testes direcionados passaram; o módulo `server/hub` passou com 122 testes e quatro optativos ignorados; `npm test` passou com 1.996 testes aprovados e 18 ignorados em 187 arquivos. Checagem de tipos, build e `git diff --check` passaram. A seleção visual da sessão no navegador e a troca com uma sessão Codex real ainda requerem teste manual.
 
+## Atualização: vínculo via MCP autenticado
+
+A ferramenta `atualizar_agente` também aceita `sessaoCodex` e `pastaCodex` para vincular ou desvincular agentes existentes. Ela usa a mesma validação e proteção contra troca durante despacho do HUD. O teste com servidor MCP HTTP real, chave administrativa e store temporário passou ao vincular e desvincular; nenhum Codex real recebeu instrução. A interface MCP permite ao administrador informar um ID e caminho; somente o HUD apresenta sessões detectadas. Consulte `docs/MCP.md` para os campos.
+

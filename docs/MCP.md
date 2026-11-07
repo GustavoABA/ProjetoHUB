@@ -15,6 +15,8 @@ A chave é aleatória e somente seu hash é persistido em `<dataDir>/projecthub/
 
 `listar_agentes`, `criar_agente`, `atualizar_agente`, `encerrar_agente`, `criar_tarefa`, `consultar_tarefas`, `pausar_tarefa`, `retomar_tarefa`, `listar_vagas`, `consultar_candidaturas`, `solicitar_relatorio`, `consultar_roteador` e `consultar_notificacoes_pendentes`.
 
+`atualizar_agente` aceita `id` e, opcionalmente, `nome` e `objetivo`. Para vincular um agente existente ao Codex, envie juntos `sessaoCodex` (UUID de uma sessão real) e `pastaCodex` (pasta Codex correspondente). Envie `null` nos dois campos para desvincular. O serviço rejeita troca durante um despacho em andamento. O MCP aceita identificadores informados pelo administrador autenticado; o HUD oferece apenas sessões detectadas localmente. Ao desvincular, tarefas pendentes voltam à execução local pelo Ollama quando não há modelo escolhido.
+
 O estado `sent` indica que o Codex aceitou uma instrução na fila; não comprova a conclusão do trabalho. `result_ready` indica uma resposta textual do Ollama aguardando revisão; não comprova ações externas. Candidaturas `approved` ainda não foram enviadas.
 
 ## ChatGPT

@@ -52,8 +52,11 @@ export function createMcpRequestHandler(deps: McpDependencies): (req: IncomingMe
     tool('listar_agentes', 'Lista agentes configurados e seus estados reais.', z.object({}), () => deps.hub.listAgents());
     tool('criar_agente', 'Cria um agente ou subagente.', z.object({ nome: z.string(), objetivo: z.string(), agentePaiId: z.string().optional() }),
       ({ nome, objetivo, agentePaiId }) => deps.hub.createAgent({ name: nome, objective: objetivo, parentId: agentePaiId }));
-    tool('atualizar_agente', 'Altera nome ou objetivo do agente.', z.object({ id: z.string(), nome: z.string().optional(), objetivo: z.string().optional() }),
-      ({ id, nome, objetivo }) => deps.hub.updateAgent(id, { name: nome, objective: objetivo }));
+    tool('atualizar_agente', 'Altera nome, objetivo ou vínculo Codex do agente. Sessão e pasta devem ser enviadas juntas; null em ambas desvincula.',
+      z.object({ id: z.string(), nome: z.string().optional(), objetivo: z.string().optional(),
+        sessaoCodex: z.string().nullable().optional(), pastaCodex: z.string().nullable().optional() }),
+      ({ id, nome, objetivo, sessaoCodex, pastaCodex }) => deps.hub.updateAgent(id, { name: nome, objective: objetivo,
+        codexThread: sessaoCodex, codexHome: pastaCodex }));
     tool('encerrar_agente', 'Encerra o agente e cancela tarefas ainda não entregues.', z.object({ id: z.string() }),
       ({ id }) => deps.hub.setAgentStatus(id, 'ended'));
     tool('criar_tarefa', 'Cria uma tarefa para um agente, com prioridade opcional de 1 a 5. A entrega ao Codex depende de sessão vinculada.', z.object({ agenteId: z.string(), instrucao: z.string(), prioridade: z.number().int().min(1).max(5).optional() }),

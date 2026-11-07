@@ -53,6 +53,14 @@ test('MCP exige chave, rejeita Origin desconhecida e executa ferramentas autenti
     const created = await post('tools/call', { name: 'criar_agente', arguments: { nome: 'Pesquisa', objetivo: 'Encontrar vagas' } }, key);
     expect(created.status).toBe(200);
     expect(hub.listAgents()).toMatchObject([{ name: 'Pesquisa' }]);
+    const agentId = hub.listAgents()[0].id;
+    const thread = '12345678-1234-1234-1234-123456789012';
+    const linked = await post('tools/call', { name: 'atualizar_agente', arguments: { id: agentId, sessaoCodex: thread, pastaCodex: 'C:/Codex' } }, key);
+    expect(linked.status).toBe(200);
+    expect(hub.agent(agentId)?.codexThread).toBe(thread);
+    const unlinked = await post('tools/call', { name: 'atualizar_agente', arguments: { id: agentId, sessaoCodex: null, pastaCodex: null } }, key);
+    expect(unlinked.status).toBe(200);
+    expect(hub.agent(agentId)?.codexThread).toBeUndefined();
     const old = key; const replacement = keys.rotate();
     expect((await post('tools/list', {}, old)).status).toBe(401);
     expect((await post('tools/list', {}, replacement)).status).toBe(200);
