@@ -63,6 +63,7 @@ import { handleHubRoute } from './hub/http';
 import { dispatchWithLocalFallback } from './hub/dispatcher';
 import { JobStore, runScheduledSearch } from './hub/jobs';
 import { reconcileAnalysisTasks, reconcileCompatibilityTasks, runJobAction } from './hub/job-actions';
+import { reconcileQuestionTasks, runCommunicationAction } from './hub/communication-actions';
 import { BrowserManager } from './hub/browser';
 import { ModelRouter } from './hub/router';
 import { TaskRuntime } from './hub/task-runtime';
@@ -114,6 +115,13 @@ const evolutionSettings = new EvolutionSettings(join(config.dataDir, 'projecthub
 const mcpPort = Number(process.env.PROJECTHUB_MCP_PORT ?? 4748);
 const webhookListener = new WebhookListener(join(config.dataDir, 'projecthub', 'webhook-listener.json'), whatsAppStore, projectHub,
   process.env, [config.port, ...(Number.isSafeInteger(mcpPort) ? [mcpPort] : [])]);
+const whatsappReady = () => {
+  const status = whatsAppStore.status();
+  return Boolean(status.mainNumber && status.secondaryNumber && status.webhookTokenConfigured &&
+    evolutionSettings.status().apiKeyConfigured && webhookListener.status().running);
+};
+const reconcileCommunication = () => { try { reconcileQuestionTasks(projectHub, whatsAppStore, whatsappReady()); }
+  catch (error) { log.warn(`Falha ao delegar comunicação WhatsApp: ${errMsg(error)}`); } };
 const mcpKeys = new AdminKeyStore(join(config.dataDir, 'projecthub', 'mcp-admin.json'));
 const connectionSession = new ConnectionSession(join(config.dataDir, 'projecthub', 'connection-session.json'));
 const connectionPublisher = new ConnectionPublisher(process.env.PROJECTHUB_GITHUB_TOKEN);
@@ -416,11 +424,14 @@ const taskRuntime = new TaskRuntime(join(config.dataDir, 'projecthub', 'executio
     return { text: response.text, model: response.model, provider: response.provider };
   };
   const eligible = (agent: { codexThread?: string; modelId?: string; systemKey?: string }) =>
-    ['job-search/researcher', 'job-search/compatibility', 'job-search/applications'].includes(agent.systemKey ?? '') ? true : agent.codexThread
+    agent.systemKey === 'job-search/whatsapp' ? whatsappReady()
+      : ['job-search/researcher', 'job-search/compatibility', 'job-search/applications'].includes(agent.systemKey ?? '') ? true : agent.codexThread
     ? Boolean(hubRunner || localAvailable)
     : agent.modelId ? models.some((model) => model.id === agent.modelId && model.available) : localAvailable;
-  const action = (task: Parameters<typeof runJobAction>[0], agent: Parameters<typeof runJobAction>[1]) =>
-    runJobAction(task, agent, { hub: projectHub, jobs: jobStore, profile: profileStore, router: modelRouter, applications: applicationStore });
+  const action = async (task: Parameters<typeof runJobAction>[0], agent: Parameters<typeof runJobAction>[1]) =>
+    (await runJobAction(task, agent, { hub: projectHub, jobs: jobStore, profile: profileStore, router: modelRouter, applications: applicationStore })) ??
+    runCommunicationAction(task, agent, { hub: projectHub, whatsapp: whatsAppStore, apiKey: () => evolutionSettings.apiKey(),
+      baseUrl: evolutionSettings.status().baseUrl });
   await dispatchWithLocalFallback(projectHub, hubRunner, local, Date.now(), eligible, action);
 });
 const hubDispatcher = setInterval(() => {
@@ -548,10 +559,12 @@ if (Number.isInteger(mcpPort) && mcpPort > 0 && mcpPort <= 65_535 && mcpPort !==
 void webhookListener.reconcile().then((status) => {
   if (status.running) log.info(`Webhook WhatsApp aguardando em ${status.bind}:${status.port}; autenticação obrigatória.`);
   else if (status.enabled) log.warn(`Webhook WhatsApp indisponível: ${status.error ?? 'listener não iniciou'}`);
-});
+  reconcileCommunication();
+}).catch((error) => log.warn(`Webhook WhatsApp indisponível: ${errMsg(error)}`));
 const webhookListenerTimer = setInterval(() => {
   if (webhookListener.status().enabled && !webhookListener.status().running)
     void webhookListener.reconcile().catch((error) => log.warn(`Webhook WhatsApp indisponível: ${errMsg(error)}`));
+  reconcileCommunication();
 }, 30_000);
 
 /**

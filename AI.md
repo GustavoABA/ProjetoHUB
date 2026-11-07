@@ -274,3 +274,11 @@ O subagente `job-search/applications` aceita no HUD uma vaga salva e cria um ras
 
 **Verificação desta atualização:** os dez testes de ações de vagas passaram, incluindo rascunho persistente único, recusa de ID desconhecido, delegação e recuperação do Avaliador. `npm test` passou com 2.002 testes aprovados e 18 ignorados; checagem de tipos, build e `git diff --check` passaram. A criação do rascunho não foi exercitada contra um portal real nesta rodada.
 
+## Atualização: tarefas do Comunicador WhatsApp
+
+O subagente `job-search/whatsapp` recebe automaticamente uma tarefa de envio para cada pergunta pendente quando números principal e secundário, chave da Evolution, token do webhook e listener de respostas estão configurados. A reconciliação roda após abrir o listener e a cada 30 segundos, sem criar tarefas duplicadas após reinicialização. O envio reutiliza o registro persistente do `WhatsAppStore`: uma resposta aceita pela Evolution conclui a tarefa com a ressalva de que a entrega no telefone não foi confirmada. Um resultado incerto ou falho deixa a tarefa com erro visível e não é reenviado automaticamente. Se o usuário responder antes do envio, o Comunicador dispensa a mensagem. O recebimento continua validando remetente e ID da pergunta, e retoma só a tarefa relacionada.
+
+Os números continuam para configuração posterior no HUD, conforme escolha do usuário; esta implementação não enviou mensagem real. O teste usa números de exemplo, uma Evolution simulada e um evento de resposta simulado. Ainda falta verificar a instalação Evolution real, a instância `procura-de-emprego`, entrega no telefone, reconexão bidirecional na versão instalada e o comportamento completo de candidaturas após uma resposta.
+
+**Verificação desta atualização:** nove testes direcionados de comunicação e WhatsApp passaram; `npm test` passou com 2.005 testes aprovados e 18 ignorados em 188 arquivos. Checagem de tipos, build e `git diff --check` passaram. O serviço foi compilado, mas não foi iniciado com uma Evolution real nesta rodada.
+
