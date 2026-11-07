@@ -5,7 +5,7 @@ import { afterEach, expect, it } from 'vitest';
 import { HubStore } from './store';
 import { JobStore, searchRemotive } from './jobs';
 import { ProfileStore } from './profile';
-import { reconcileAnalysisTasks, runJobAction } from './job-actions';
+import { reconcileAnalysisTasks, reconcileCompatibilityTasks, runJobAction } from './job-actions';
 import { dispatchWithLocalFallback } from './dispatcher';
 import type { ModelRouter } from './router';
 
@@ -77,4 +77,79 @@ it('uses only Ollama for automatically delegated analysis by default', async () 
   } };
   await runJobAction(task, analyst, { hub, jobs, profile, router });
   expect(calls[0]?.slice(1)).toEqual(['ollama', undefined]);
+});
+
+it('delegates source analysis then confirmed-profile scoring to separate agents', async () => {
+  const { dir, hub, jobs, profile } = fixture();
+  await searchRemotive(jobs, 'assistant', response);
+  profile.update({ skills: ['Excel'], experience: [], education: [] }); profile.confirm();
+  reconcileAnalysisTasks(hub, jobs);
+  const analyst = hub.listAgents().find((agent) => agent.systemKey === 'job-search/requirements')!;
+  const router = { complete: async () => ({ text: '{"requirements":["Conhecimento em Excel."]}', provider: 'ollama' as const,
+    model: 'local', inputTokens: 1, outputTokens: 1 }) };
+  const analystTask = hub.listTasks().find((task) => task.agentId === analyst.id)!;
+  await runJobAction(analystTask, analyst, { hub, jobs, profile, router });
+  expect(jobs.list()[0].compatibility).toBeNull();
+  expect(jobs.list()[0].profileRevision).toBeUndefined();
+  const evaluator = hub.listAgents().find((agent) => agent.systemKey === 'job-search/compatibility')!;
+  const evaluation = hub.listTasks().find((task) => task.agentId === evaluator.id)!;
+  expect(evaluation.instruction).toBe(`${jobs.list()[0].id}@${profile.get().revision}`);
+  expect(reconcileCompatibilityTasks(hub, jobs, profile)).toBe(0);
+  hub.setTaskStatus(analystTask.id, 'done');
+  const evaluated = await dispatchWithLocalFallback(hub, undefined,
+    async () => { throw new Error('Modelo não deve avaliar compatibilidade'); }, Date.now(), () => true,
+    (task, agent) => runJobAction(task, agent, { hub, jobs, profile, router }));
+  expect(evaluated).toMatchObject({ id: evaluation.id, status: 'done' });
+  expect(jobs.list()[0]).toMatchObject({ compatibility: 100, profileRevision: profile.get().revision });
+  expect(new JobStore(join(dir, 'jobs.json')).list()[0].compatibility).toBe(100);
+});
+
+it('re-evaluates after a confirmed profile revision without re-extracting requirements', async () => {
+  const { hub, jobs, profile } = fixture();
+  await searchRemotive(jobs, 'assistant', response);
+  const initial = profile.update({ skills: ['Excel'], experience: [], education: [] }); profile.confirm();
+  const router = { complete: async () => { throw new Error('A avaliação não deve chamar modelo'); } };
+  const jobId = jobs.list()[0].id;
+  jobs.analyzed(jobId, { requirements: ['Conhecimento em Excel.'], compatibility: null,
+    justification: 'Aguardando avaliação.', analysisModel: 'ollama/local' });
+  expect(reconcileCompatibilityTasks(hub, jobs, profile)).toBe(1);
+  const evaluator = hub.listAgents().find((agent) => agent.systemKey === 'job-search/compatibility')!;
+  const oldTask = hub.listTasks().find((task) => task.agentId === evaluator.id)!;
+  profile.update({ skills: ['Atendimento'], experience: [], education: [] }); profile.confirm();
+  expect(reconcileCompatibilityTasks(hub, jobs, profile)).toBe(1);
+  expect(reconcileCompatibilityTasks(hub, jobs, profile)).toBe(0);
+  expect(await runJobAction(oldTask, evaluator, { hub, jobs, profile, router })).toContain('desatualizada');
+  expect(jobs.list()[0].profileRevision).toBeUndefined();
+  const latest = hub.listTasks().filter((task) => task.agentId === evaluator.id).at(-1)!;
+  await runJobAction(latest, evaluator, { hub, jobs, profile, router });
+  expect(jobs.list()[0]).toMatchObject({ compatibility: 0, profileRevision: profile.get().revision });
+  expect(jobs.list()[0].profileRevision).not.toBe(initial.revision);
+  expect(reconcileAnalysisTasks(hub, jobs)).toBe(0);
+});
+
+it('does not delegate compatibility work without a confirmed profile', async () => {
+  const { hub, jobs, profile } = fixture();
+  await searchRemotive(jobs, 'assistant', response);
+  jobs.analyzed(jobs.list()[0].id, { requirements: ['Conhecimento em Excel.'], compatibility: null,
+    justification: 'Aguardando avaliação.', analysisModel: 'ollama/local' });
+  expect(reconcileCompatibilityTasks(hub, jobs, profile)).toBe(0);
+});
+
+it('recovers a queued evaluation after restart without duplicating it', async () => {
+  const { dir, hub, jobs, profile } = fixture();
+  await searchRemotive(jobs, 'assistant', response);
+  profile.update({ skills: ['Excel'], experience: [], education: [] }); profile.confirm();
+  jobs.analyzed(jobs.list()[0].id, { requirements: ['Conhecimento em Excel.'], compatibility: null,
+    justification: 'Aguardando avaliação.', analysisModel: 'ollama/local' });
+  expect(reconcileCompatibilityTasks(hub, jobs, profile)).toBe(1);
+  const restarted = new HubStore(join(dir, 'state.json'));
+  const savedJobs = new JobStore(join(dir, 'jobs.json'));
+  const savedProfile = new ProfileStore(join(dir, 'profile.json'));
+  expect(reconcileCompatibilityTasks(restarted, savedJobs, savedProfile)).toBe(0);
+  const result = await dispatchWithLocalFallback(restarted, undefined,
+    async () => { throw new Error('Modelo não deve ser chamado'); }, Date.now(), () => true,
+    (task, agent) => runJobAction(task, agent, { hub: restarted, jobs: savedJobs, profile: savedProfile,
+      router: { complete: async () => { throw new Error('Modelo não deve ser chamado'); } } }));
+  expect(result?.status).toBe('done');
+  expect(savedJobs.list()[0].compatibility).toBe(100);
 });

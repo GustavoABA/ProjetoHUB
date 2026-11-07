@@ -110,21 +110,26 @@ export function mountHubPanel(): void {
   let currentMcpUrl = 'http://127.0.0.1:4748/mcp';
   let suggestedWebhookUrl = '';
   let providerStatuses: ProviderCredentialStatus = {};
+  let confirmedProfileRevision: string | undefined;
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
   const updateTaskFields = () => {
     const role = agentsSelect.selectedOptions[0]?.dataset.systemKey;
     const researcher = role === 'job-search/researcher';
     const analyst = role === 'job-search/requirements';
-    taskInstruction.parentElement!.hidden = analyst;
-    taskInstruction.required = !analyst;
-    taskInstruction.disabled = analyst;
+    const evaluator = role === 'job-search/compatibility';
+    taskInstruction.parentElement!.hidden = analyst || evaluator;
+    taskInstruction.required = !analyst && !evaluator;
+    taskInstruction.disabled = analyst || evaluator;
     taskInstruction.placeholder = researcher ? 'Termo de busca na Remotive, até 100 caracteres' : 'Descreva a tarefa';
     taskInstruction.maxLength = researcher ? 100 : 10_000;
-    taskJobLabel.hidden = !analyst;
-    taskJobSelect.required = analyst;
+    taskJobLabel.hidden = !analyst && !evaluator;
+    taskJobSelect.required = analyst || evaluator;
+    for (const item of taskJobSelect.options) item.disabled = evaluator && item.dataset.analyzed !== 'true';
+    if (taskJobSelect.selectedOptions[0]?.disabled) taskJobSelect.value = [...taskJobSelect.options].find((item) => !item.disabled)?.value ?? '';
     (panel.querySelector('#hub-task-hint') as HTMLElement).textContent = researcher
       ? 'Pesquisador de vagas: informe apenas o termo de busca. A consulta usa a Remotive e registra somente anúncios retornados pela fonte.'
-      : analyst ? 'Analista de requisitos: escolha uma vaga salva. A extração usa o modelo escolhido no agente ou Ollama local e confere cada requisito no anúncio.' : '';
+      : analyst ? 'Analista de requisitos: escolha uma vaga salva. A extração usa o modelo escolhido no agente ou Ollama local e confere cada requisito no anúncio.'
+        : evaluator ? 'Avaliador: escolha uma vaga já analisada e confirme seu perfil profissional. A comparação usa apenas dados confirmados e não chama modelo.' : '';
   };
 
   async function refresh(): Promise<void> {
@@ -249,7 +254,8 @@ export function mountHubPanel(): void {
     const selectedTaskAgent = agentsSelect.value;
     const selectedTaskJob = taskJobSelect.value;
     sessions.length = 1; agentModel.length = 1; parents.length = 1; agentsSelect.length = 0; taskJobSelect.length = 0; questionTasks.length = 0; questionApplications.length = 1; choices = [];
-    for (const job of jobs) option(taskJobSelect, job.id, `${job.title} — ${job.company}`);
+    confirmedProfileRevision = profile.confirmedAt ? profile.revision : undefined;
+    for (const job of jobs) { option(taskJobSelect, job.id, `${job.title} — ${job.company}`); taskJobSelect.options[taskJobSelect.length - 1].dataset.analyzed = String(Boolean(job.analyzedAt)); }
     if (selectedTaskJob && [...taskJobSelect.options].some((item) => item.value === selectedTaskJob)) taskJobSelect.value = selectedTaskJob;
     for (const model of router.models) option(agentModel, model.id, `${model.provider} / ${model.model}${model.available ? '' : ' · indisponível'}`);
     for (const app of applications) option(questionApplications, app.id, `${app.title} — ${app.company}`);
@@ -447,7 +453,10 @@ export function mountHubPanel(): void {
       .then(() => { agentForm.reset(); message.textContent = 'Agente criado.'; return refresh(); }).catch(showError); };
   sessions.onchange = () => { agentModel.disabled = Boolean(sessions.value); if (agentModel.disabled) agentModel.value = ''; };
   taskForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(taskForm);
-    void api('/api/hub/tasks', { agentId: data.get('agent'), instruction: taskJobLabel.hidden ? data.get('instruction') : data.get('jobId'), priority: Number(data.get('priority')) })
+    const evaluator = agentsSelect.selectedOptions[0]?.dataset.systemKey === 'job-search/compatibility';
+    if (evaluator && !confirmedProfileRevision) { message.textContent = 'Confirme o perfil profissional antes de avaliar compatibilidade.'; return; }
+    const instruction = taskJobLabel.hidden ? data.get('instruction') : evaluator ? `${data.get('jobId')}@${confirmedProfileRevision}` : data.get('jobId');
+    void api('/api/hub/tasks', { agentId: data.get('agent'), instruction, priority: Number(data.get('priority')) })
       .then(() => { taskForm.reset(); message.textContent = 'Tarefa registrada.'; return refresh(); }).catch(showError); };
   agentsSelect.onchange = updateTaskFields;
   executionForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(executionForm);

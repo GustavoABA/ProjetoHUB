@@ -1,5 +1,5 @@
 import type { JobListing, JobStore } from './jobs';
-import type { ProfileStore } from './profile';
+import type { CandidateProfile, ProfileStore } from './profile';
 import type { ModelRouter, Provider } from './router';
 
 function normalized(value: string): string { return value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('pt-BR'); }
@@ -17,7 +17,7 @@ function parseRequirements(output: string, description: string): string[] {
 
 /** An AI extracts only source-verifiable excerpts; scoring is explicit term coverage, not a hiring prediction. */
 export async function analyzeJob(jobs: JobStore, profile: ProfileStore, router: Pick<ModelRouter, 'complete'>, id: string,
-  onlyProvider?: Provider, onlyModelId?: string): Promise<JobListing> {
+  onlyProvider?: Provider, onlyModelId?: string, extractOnly = false): Promise<JobListing> {
   const job = jobs.list().find((entry) => entry.id === id);
   if (!job) throw new Error('Vaga não encontrada');
   if (!job.description.trim()) throw new Error('Anúncio sem descrição para análise');
@@ -26,14 +26,21 @@ export async function analyzeJob(jobs: JobStore, profile: ProfileStore, router: 
     { role: 'user', content: `Anúncio original da vaga ${job.title} em ${job.company}:\n${job.description.slice(0, 15_000)}` },
   ], onlyProvider, onlyModelId);
   const requirements = parseRequirements(result.text, job.description);
-  const candidate = profile.get();
-  const confirmed = Boolean(candidate.confirmedAt);
-  const terms = confirmed ? [...candidate.skills, ...candidate.experience, ...candidate.education].map(normalized) : [];
-  const matched = requirements.filter((requirement) => terms.some((term) => normalized(requirement).includes(term)));
-  const compatibility = confirmed && requirements.length && terms.length ? Math.round(matched.length / requirements.length * 100) : null;
+  const extracted = jobs.analyzed(id, { requirements, compatibility: null,
+    justification: 'Requisitos extraídos do anúncio; avaliação de compatibilidade pendente.', analysisModel: `${result.provider}/${result.model}` });
+  return extractOnly || !profile.get().confirmedAt ? extracted : scoreJob(jobs, profile.get(), id);
+}
+
+/** Deterministic, profile-revision-bound comparison; no model or unconfirmed claim is used. */
+export function scoreJob(jobs: JobStore, candidate: CandidateProfile, id: string): JobListing {
+  if (!candidate.confirmedAt) throw new Error('Confirme o perfil antes de avaliar compatibilidade');
+  const job = jobs.list().find((entry) => entry.id === id);
+  if (!job?.analyzedAt) throw new Error('Vaga ainda não analisada');
+  const terms = [...candidate.skills, ...candidate.experience, ...candidate.education].map(normalized).filter(Boolean);
+  const matched = job.requirements.filter((requirement) => terms.some((term) => normalized(requirement).includes(term)));
+  const compatibility = job.requirements.length && terms.length ? Math.round(matched.length / job.requirements.length * 100) : null;
   const justification = compatibility === null
-    ? 'Requisitos extraídos do anúncio; compatibilidade indeterminada sem perfil confirmado e requisitos comparáveis.'
-    : `Correspondência textual de ${matched.length} entre ${requirements.length} trechos de requisitos com informações confirmadas pelo usuário. É uma triagem por termos, não uma previsão de contratação.`;
-  return jobs.analyzed(id, { requirements, compatibility, justification, analysisModel: `${result.provider}/${result.model}`,
-    ...(compatibility !== null ? { profileRevision: candidate.revision } : {}) });
+    ? 'Requisitos extraídos do anúncio; compatibilidade indeterminada sem requisitos comparáveis no perfil confirmado.'
+    : `Correspondência textual de ${matched.length} entre ${job.requirements.length} trechos de requisitos com informações confirmadas pelo usuário. É uma triagem por termos, não uma previsão de contratação.`;
+  return jobs.scored(id, { compatibility, justification, profileRevision: candidate.revision });
 }

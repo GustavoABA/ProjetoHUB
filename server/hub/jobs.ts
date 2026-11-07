@@ -88,6 +88,16 @@ export class JobStore {
     else delete job.profileRevision;
     this.save(); return structuredClone(job);
   }
+  scored(id: string, result: { compatibility: number | null; justification: string; profileRevision: string }): JobListing {
+    const job = this.state.jobs.find((entry) => entry.id === id);
+    if (!job?.analyzedAt) throw new Error('Vaga ainda não analisada');
+    if (result.compatibility !== null && (!Number.isInteger(result.compatibility) || result.compatibility < 0 || result.compatibility > 100)) throw new Error('Compatibilidade inválida');
+    if (!result.profileRevision || !result.justification.trim()) throw new Error('Avaliação incompleta');
+    job.compatibility = result.compatibility;
+    job.justification = result.justification;
+    job.profileRevision = result.profileRevision;
+    this.save(); return structuredClone(job);
+  }
   schedule(): JobSchedule | undefined { return this.state.schedule && structuredClone(this.state.schedule); }
   configure(input: { query: string; intervalHours: number; enabled: boolean }, now: Date = new Date()): JobSchedule {
     const query = input.query?.trim();
