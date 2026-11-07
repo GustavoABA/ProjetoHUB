@@ -21,6 +21,7 @@ import type { ProviderCredentials } from './provider-credentials';
 import type { TaskRuntime } from './task-runtime';
 import { configureJobWebhook, connectJobInstance, ensureJobInstance } from './evolution-instance';
 import { registerGreenhouseBoard, searchGreenhouseBoards, type GreenhouseBoardStore } from './greenhouse';
+import { evaluateJobPreferences, type JobSearchPreferences } from './job-preferences';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Corpo JSON inválido');
@@ -414,10 +415,19 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     else {
       const byJob = new Map(applications?.list().map((app) => [app.jobId, app.status]) ?? []);
       const revision = profile?.get();
-      sendJson(res, 200, jobs?.list().map((job) => ({ ...job, compatibility: job.profileRevision && revision?.confirmedAt && job.profileRevision === revision.revision ? job.compatibility : null,
+      sendJson(res, 200, jobs?.list().map((job) => ({ ...job, searchFit: evaluateJobPreferences(job, jobs.preferences()),
+        compatibility: job.profileRevision && revision?.confirmedAt && job.profileRevision === revision.revision ? job.compatibility : null,
         justification: job.profileRevision && (!revision?.confirmedAt || job.profileRevision !== revision.revision) ? 'Perfil alterado: a compatibilidade anterior está desatualizada. Reanalise a vaga.' : job.justification,
         applicationStatus: byJob.get(job.id) ?? job.applicationStatus })) ?? []);
     }
+    return true;
+  }
+  if (path === '/api/hub/jobs/preferences') {
+    if (!jobs) sendJson(res, 503, { error: 'Preferências de vagas indisponíveis' });
+    else if (req.method === 'GET') sendJson(res, 200, jobs.preferences());
+    else if (req.method === 'PUT') void readJson(req).then((raw) => sendJson(res, 200,
+      jobs.configurePreferences(record(raw) as JobSearchPreferences))).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
   if (path === '/api/hub/jobs/greenhouse/boards') {

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { evaluateJobPreferences, validateJobPreferences, type JobSearchPreferences } from './job-preferences';
 
 export interface JobListing {
   id: string;
@@ -25,7 +26,7 @@ export interface JobListing {
 }
 interface Attempt { at: string; ok: boolean }
 export interface JobSchedule { query: string; intervalHours: 6 | 12 | 24; enabled: boolean; nextRunAt: string; lastRunAt?: string; lastError?: string }
-interface State { version: 1; jobs: JobListing[]; attempts: Attempt[]; schedule?: JobSchedule }
+interface State { version: 1; jobs: JobListing[]; attempts: Attempt[]; schedule?: JobSchedule; preferences?: Required<JobSearchPreferences> }
 
 function text(value: unknown, max: number): string {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -76,6 +77,13 @@ export class JobStore {
     } else this.state = { version: 1, jobs: [], attempts: [] };
   }
   list(): JobListing[] { return structuredClone(this.state.jobs); }
+  preferences(): Required<JobSearchPreferences> { return structuredClone(this.state.preferences ?? validateJobPreferences({})); }
+  configurePreferences(input: JobSearchPreferences): Required<JobSearchPreferences> {
+    const preferences = validateJobPreferences(input);
+    this.state.preferences = preferences;
+    this.save();
+    return structuredClone(preferences);
+  }
   analyzed(id: string, result: { requirements: string[]; compatibility: number | null; justification: string; analysisModel: string; profileRevision?: string }): JobListing {
     const job = this.state.jobs.find((entry) => entry.id === id);
     if (!job) throw new Error('Vaga não encontrada');
@@ -168,7 +176,9 @@ export async function searchRemotive(store: JobStore, query: string, fetcher: ty
   if (!response.ok) throw new Error(`Remotive respondeu HTTP ${response.status}`);
   const body: unknown = await response.json();
   if (!body || typeof body !== 'object' || !Array.isArray((body as { jobs?: unknown }).jobs)) throw new Error('Resposta de vagas inválida');
-  const jobs = (body as { jobs: unknown[] }).jobs.map((v) => parseJob(v, now)).filter((v): v is JobListing => !!v);
+  const preferences = store.preferences();
+  const jobs = (body as { jobs: unknown[] }).jobs.map((v) => parseJob(v, now)).filter((v): v is JobListing => !!v)
+    .filter((job) => evaluateJobPreferences(job, preferences).eligible);
   const added = store.finish(index, jobs);
   return { added, jobs };
 }

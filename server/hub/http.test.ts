@@ -350,6 +350,30 @@ it('searches a public source and lists only traceable vacancies', async () => {
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 
+it('saves job search preferences and reevaluates historical listings without rewriting their source', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
+  const agents = new HubStore(join(dir, 'state.json')); const jobs = new JobStore(join(dir, 'jobs.json'));
+  await searchRemotive(jobs, 'assistente', async () => new Response(JSON.stringify({ jobs: [{ id: 91,
+    url: 'https://remotive.com/remote-jobs/support/assistant-91', title: 'Assistente remoto', company_name: 'Empresa',
+    description: '<p>Excel</p>' }] }), { status: 200 }));
+  const server = http.createServer((req, res) => handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), agents, jobs));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const base = `http://127.0.0.1:${address.port}`;
+    const saved = await fetch(base + '/api/hub/jobs/preferences', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Assistente', modes: ['remote'], desiredSalary: 'R$ 2.000/mês' }) });
+    expect(saved.status).toBe(200);
+    expect((await (await fetch(base + '/api/hub/jobs/preferences')).json())).toMatchObject({ title: 'Assistente', modes: ['remote'] });
+    expect((await (await fetch(base + '/api/hub/jobs')).json())[0]).toMatchObject({ source: 'Remotive',
+      searchFit: { eligible: true, unknown: ['salary'] } });
+    await fetch(base + '/api/hub/jobs/preferences', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modes: ['onsite'] }) });
+    expect((await (await fetch(base + '/api/hub/jobs')).json())[0].searchFit.eligible).toBe(false);
+    expect(new JobStore(join(dir, 'jobs.json')).list()[0].source).toBe('Remotive');
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
 it('registers and searches an official Greenhouse board through the local HUD API', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
   const agents = new HubStore(join(dir, 'state.json'));

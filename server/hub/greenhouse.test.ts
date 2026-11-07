@@ -60,3 +60,17 @@ it('skips malformed links and keeps another registered board working after one f
   expect(result).toMatchObject({ added: 1, errors: [{ token: 'broken' }] });
   expect(jobs.list()).toMatchObject([{ sourceId: 'working:13', mode: 'unspecified' }]);
 });
+
+it('applies configured title and location preferences to sourced Greenhouse jobs', async () => {
+  const { boards, jobs } = fixture();
+  boards.addVerified('empresa', 'Empresa Oficial');
+  jobs.configurePreferences({ title: 'Assistente', location: 'São Paulo', modes: ['onsite'] });
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ jobs: [
+    { id: 201, internal_job_id: 1, title: 'Assistente', location: { name: 'Recife presencial' }, content: 'Atendimento', absolute_url: 'https://job-boards.greenhouse.io/empresa/jobs/201' },
+    { id: 202, internal_job_id: 2, title: 'Assistente', location: { name: 'São Paulo presencial' }, content: 'Atendimento', absolute_url: 'https://job-boards.greenhouse.io/empresa/jobs/202' },
+    { id: 203, internal_job_id: 3, title: 'Engenheiro', location: { name: 'São Paulo presencial' }, content: 'Atendimento', absolute_url: 'https://job-boards.greenhouse.io/empresa/jobs/203' },
+  ] }), { status: 200 }));
+  const result = await searchGreenhouseBoards(boards, jobs, 'atendimento', fetcher);
+  expect(result).toMatchObject({ added: 1 });
+  expect(jobs.list()).toMatchObject([{ sourceId: 'empresa:202' }]);
+});

@@ -22,6 +22,15 @@ it('records source-linked vacancies once and persists them', async () => {
   expect(new JobStore(path).list()).toHaveLength(1);
 });
 
+it('does not save a Remotive listing that explicitly conflicts with selected work modes', async () => {
+  const store = new JobStore(file());
+  store.configurePreferences({ modes: ['onsite'] });
+  const result = await searchRemotive(store, 'assistente', async () => new Response(JSON.stringify(payload), { status: 200 }));
+  expect(result).toMatchObject({ added: 0, jobs: [] });
+  expect(store.list()).toEqual([]);
+  expect(store.searchesToday(new Date())).toBe(1);
+});
+
 it('enforces source rate and refuses malformed job links', async () => {
   const store = new JobStore(file());
   const fetcher = vi.fn(async () => new Response(JSON.stringify({ jobs: [payload.jobs[0], { ...payload.jobs[0], id: 102, url: 'http://example.com/evil' }] }), { status: 200 }));

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { isIP } from 'node:net';
 import { dirname } from 'node:path';
 import { plainJobDescription, type JobListing, type JobStore } from './jobs';
+import { evaluateJobPreferences } from './job-preferences';
 
 export interface GreenhouseBoard { token: string; company: string; createdAt: string; lastSearchedAt?: string; lastError?: string }
 type State = { version: 1; boards: GreenhouseBoard[] };
@@ -115,7 +116,8 @@ export async function searchGreenhouseBoards(store: GreenhouseBoardStore, jobs: 
       const items = (raw as { jobs?: unknown } | null)?.jobs;
       if (!Array.isArray(items) || items.length > 5000) throw new Error('Resposta de vagas inválida ou excessiva');
       const matching = items.map((item) => parseJob(item, board, now)).filter((item): item is JobListing => Boolean(item))
-        .filter((item) => `${item.title} ${item.location} ${item.description}`.toLocaleLowerCase('pt-BR').includes(normalized));
+        .filter((item) => `${item.title} ${item.location} ${item.description}`.toLocaleLowerCase('pt-BR').includes(normalized))
+        .filter((item) => evaluateJobPreferences(item, jobs.preferences()).eligible);
       added += jobs.addListings(matching); found.push(...matching); succeeded++;
       store.recordSearch(board.token);
     } catch (error) {
