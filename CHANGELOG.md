@@ -30,6 +30,10 @@ do meio (0.**3**.0).
 - URL e chave da Evolution API configuráveis pelo painel, com proteção da chave pela conta do Windows.
 - Criação guiada da instância exclusiva de emprego após verificar duplicatas, com QR de pareamento temporário no painel.
 
+### Corrigido no ProjetoHUB
+
+- O fallback para Ollama local reconhece falha confirmada ao abrir uma sessão Codex e ausência do executável. Timeout ambíguo da fila não duplica a execução.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

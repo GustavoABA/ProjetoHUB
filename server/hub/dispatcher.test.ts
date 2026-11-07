@@ -54,6 +54,39 @@ it('falls back only for a recognized Codex availability error', async () => {
   expect(store.listTasks().find((item) => item.id === task.id)).toMatchObject({ status: 'result_ready', executionProvider: 'ollama' });
 });
 
+it('keeps Codex as the primary executor when its queue accepts the instruction', async () => {
+  const { store, agent } = fixture();
+  const task = store.createTask({ agentId: agent.id, instruction: 'Analise' });
+  let localCalls = 0;
+  await dispatchWithLocalFallback(store, async () => ({ ok: true }), async () => {
+    localCalls++;
+    return { text: 'Resposta local', model: 'local' };
+  });
+  expect(localCalls).toBe(0);
+  expect(store.listTasks().find((item) => item.id === task.id)?.status).toBe('sent');
+});
+
+it.each(['no rollout found for thread id', 'não consegui rodar o Codex (codex.exe)', 'o codex queue falhou (código ENOENT)'])(
+  'uses local Ollama when the Codex session cannot be opened: %s', async (error) => {
+    const { store, agent } = fixture();
+    const task = store.createTask({ agentId: agent.id, instruction: 'Analise' });
+    await dispatchWithLocalFallback(store, async () => ({ ok: false, error }), async () => ({ text: 'Resposta local', model: 'local' }));
+    expect(store.listTasks().find((item) => item.id === task.id)).toMatchObject({ status: 'result_ready', executionProvider: 'ollama' });
+  },
+);
+
+it('does not duplicate work after an ambiguous Codex queue timeout', async () => {
+  const { store, agent } = fixture();
+  const task = store.createTask({ agentId: agent.id, instruction: 'Analise' });
+  let localCalls = 0;
+  await dispatchWithLocalFallback(store, async () => ({ ok: false, error: 'o codex queue não respondeu em 20 s (a mensagem pode ter entrado na fila mesmo assim)' }), async () => {
+    localCalls++;
+    return { text: 'Resposta local', model: 'local' };
+  });
+  expect(localCalls).toBe(0);
+  expect(store.listTasks().find((item) => item.id === task.id)?.status).toBe('failed');
+});
+
 it('backs off after a temporary Ollama outage and keeps other tasks moving', async () => {
   const { store, agent } = fixture();
   const first = store.createTask({ agentId: agent.id, instruction: 'Primeira' });

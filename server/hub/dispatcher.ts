@@ -7,6 +7,11 @@ function transientLocal(error: unknown): boolean {
   const message = error instanceof Error ? error.message : '';
   return /offline|unavailable|indisponível|timeout|timed out|connection|ECONNREFUSED|fetch failed|Todos os modelos disponíveis falharam|Nenhum modelo disponível/i.test(message);
 }
+function codexUnavailable(error: string): boolean {
+  // Queue timeouts are ambiguous: Codex may have accepted the instruction already.
+  if (/timeout|timed out|não respondeu|pode ter entrado na fila/i.test(error)) return false;
+  return /offline|unavailable|not found|no rollout found|not running|connection|closed|não encontrado|indisponível|não consegui rodar o Codex|código (ENOENT|EACCES)/i.test(error);
+}
 
 export async function dispatchNext(store: HubStore, runner: CodexQueueRunner, now = Date.now()): Promise<HubTask | undefined> {
   const task = store.listTasks().find((t) => t.status === 'queued' && due(t, now) && store.agent(t.agentId)?.status !== 'paused' && store.agent(t.agentId)?.status !== 'ended');
@@ -35,10 +40,10 @@ export async function dispatchWithLocalFallback(store: HubStore, runner: CodexQu
     try {
       const delivery = await runner({ thread: agent.codexThread, codexHome: agent.codexHome, text: task.instruction });
       if (delivery.ok) return store.setTaskStatus(task.id, 'sent');
-      if (!/offline|unavailable|not found|not running|connection|closed|timeout|não encontrado|indisponível/i.test(delivery.error ?? ''))
+      if (!codexUnavailable(delivery.error ?? ''))
         return store.setTaskStatus(task.id, 'failed', delivery.error);
     } catch (error) {
-      if (!/offline|unavailable|not found|not running|connection|closed|timeout|não encontrado|indisponível/i.test(error instanceof Error ? error.message : ''))
+      if (!codexUnavailable(error instanceof Error ? error.message : ''))
         return store.setTaskStatus(task.id, 'failed', error instanceof Error ? error.message : 'Falha no Codex');
     }
   } else store.setTaskStatus(task.id, 'dispatching');
