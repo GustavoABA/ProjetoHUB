@@ -360,3 +360,9 @@ O navegador Playwright agora lê controles visíveis do formulário sem coletar 
 
 **Verificação desta atualização:** teste unitário cobriu criação única das perguntas, campos já conhecidos, campos manuais, persistência da resposta e execução da tarefa interna mesmo com sessão Codex vinculada ao especialista. O teste optativo com Edge real e página local cobriu rótulos visíveis, exclusão de senha/seleção/caixa de confirmação, bloqueio do envio com pergunta pendente e preenchimento depois da resposta. `npm test` passou com 2.043 testes aprovados e 18 ignorados em 192 arquivos; checagem de tipos e build passaram. O HUD foi compilado, mas não foi inspecionado visualmente nesta atualização.
 
+## Atualização: avisos de falha de tarefas
+
+O reconciliador WhatsApp também identifica tarefas persistidas no estado `failed` e cria um aviso único por ID. A primeira leitura registra falhas antigas como histórico, sem envio retroativo. O aviso contém o ID e orienta a consultar o painel; não carrega a instrução nem o erro bruto, que podem conter dados sensíveis. Uma falha da tarefa que tenta enviar um aviso não cria outro aviso, evitando recursão. O canal continua dependente da configuração posterior dos números pelo HUD e não foi usado para mensagens reais nesta atualização.
+
+**Verificação desta atualização:** teste de módulo cobriu falha antiga, aviso novo, persistência após reinício, deduplicação e prevenção de avisos recursivos. `npm test` passou com 2.044 testes aprovados e 18 ignorados em 192 arquivos; checagem de tipos e build passaram. Os envios reais continuam não verificados.
+

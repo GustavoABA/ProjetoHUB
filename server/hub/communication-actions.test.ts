@@ -149,3 +149,25 @@ it('notifies approval and submission only after the persisted application transi
   whatsapp.reconcileEvents([], applications.list());
   expect(whatsapp.status().notifications.at(-1)?.type).toBe('application_submitted');
 });
+
+it('queues one durable error notice for a failed task without replaying historical failures', () => {
+  const { dir, hub, whatsapp } = fixture();
+  const old = hub.createTask({ agentId: hub.listAgents()[0].id, instruction: 'Tarefa antiga' });
+  hub.setTaskStatus(old.id, 'failed', 'Falha antiga');
+  whatsapp.reconcileEvents([], [], hub.listTasks());
+  expect(whatsapp.status().notifications).toEqual([]);
+  const recent = hub.createTask({ agentId: hub.listAgents()[0].id, instruction: 'Tarefa nova' });
+  hub.setTaskStatus(recent.id, 'failed', 'Falha recente');
+  whatsapp.reconcileEvents([], [], hub.listTasks());
+  expect(whatsapp.status().notifications).toMatchObject([{ type: 'task_error', state: 'pending' }]);
+  expect(whatsapp.status().notifications[0].text).toContain(recent.id);
+  expect(whatsapp.status().notifications[0].text).not.toContain('Tarefa nova');
+  const restored = new WhatsAppStore(join(dir, 'whatsapp.json'));
+  restored.reconcileEvents([], [], hub.listTasks());
+  expect(restored.status().notifications).toHaveLength(1);
+  const communicator = hub.listAgents().find((agent) => agent.systemKey === 'job-search/whatsapp')!;
+  const alertTask = hub.createTask({ agentId: communicator.id, instruction: `notification:${restored.status().notifications[0].id}` });
+  hub.setTaskStatus(alertTask.id, 'failed', 'Evolution offline');
+  restored.reconcileEvents([], [], hub.listTasks());
+  expect(restored.status().notifications).toHaveLength(1);
+});

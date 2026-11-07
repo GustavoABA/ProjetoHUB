@@ -128,7 +128,7 @@ const whatsappReady = () => {
     evolutionSettings.status().apiKeyConfigured && webhookListener.status().running);
 };
 const reconcileCommunication = () => { try {
-  whatsAppStore.reconcileEvents(jobStore.list(), applicationStore.list());
+  whatsAppStore.reconcileEvents(jobStore.list(), applicationStore.list(), projectHub.listTasks());
   reconcileQuestionTasks(projectHub, whatsAppStore, whatsappReady());
 }
   catch (error) { log.warn(`Falha ao delegar comunicação WhatsApp: ${errMsg(error)}`); } };

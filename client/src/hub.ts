@@ -266,7 +266,7 @@ export function mountHubPanel(): void {
     notificationList.replaceChildren();
     const notificationLabels: Record<string, string> = { job_found: 'Nova vaga', application_started: 'Rascunho criado',
       approval_needed: 'Aprovação necessária', submission_started: 'Envio iniciado',
-      application_submitted: 'Envio confirmado', submission_uncertain: 'Envio incerto' };
+      application_submitted: 'Envio confirmado', submission_uncertain: 'Envio incerto', task_error: 'Erro em tarefa' };
     const notificationStates: Record<string, string> = { pending: 'aguardando canal', sending: 'enviando', failed: 'falhou' };
     for (const notification of (whatsapp.notifications ?? []).slice(-20).reverse()) {
       const item = document.createElement('li');

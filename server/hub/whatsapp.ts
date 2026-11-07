@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { HubStore } from './store';
+import type { HubStore, HubTask } from './store';
 import type { JobListing } from './jobs';
 import type { Application } from './applications';
 
@@ -9,7 +9,7 @@ const INSTANCE = 'procura-de-emprego';
 const DEFAULT_EVOLUTION_URL = 'http://127.0.0.1:8080';
 type OutboundState = 'sending' | 'accepted' | 'uncertain' | 'failed';
 export interface OutboundMessage { id: string; questionId: string; text: string; state: OutboundState; createdAt: string; updatedAt: string; providerMessageId?: string; error?: string }
-export interface EventNotification { id: string; eventKey: string; type: 'job_found' | 'application_started' | 'approval_needed' | 'submission_started' | 'application_submitted' | 'submission_uncertain'; text: string; state: 'pending' | OutboundState; createdAt: string; updatedAt: string; providerMessageId?: string; error?: string }
+export interface EventNotification { id: string; eventKey: string; type: 'job_found' | 'application_started' | 'approval_needed' | 'submission_started' | 'application_submitted' | 'submission_uncertain' | 'task_error'; text: string; state: 'pending' | OutboundState; createdAt: string; updatedAt: string; providerMessageId?: string; error?: string }
 interface InboundMessage { id: string; questionId: string; receivedAt: string }
 interface State { version: 1; instance: typeof INSTANCE; mainNumber?: string; secondaryNumber?: string; webhookTokenHash?: string; inbound: InboundMessage[]; outbound: OutboundMessage[]; observedEvents?: string[]; notifications?: EventNotification[] }
 function number(value: string): string {
@@ -36,7 +36,7 @@ export class WhatsAppStore {
     webhookTokenConfigured: Boolean(this.state.webhookTokenHash), inboundCount: this.state.inbound.length, outbound: structuredClone(this.state.outbound),
     notifications: structuredClone(this.state.notifications ?? []) }; }
   /** First reconciliation establishes a baseline so an upgrade cannot send historical vacancies. */
-  reconcileEvents(jobs: JobListing[], applications: Application[]): number {
+  reconcileEvents(jobs: JobListing[], applications: Application[], tasks: HubTask[] = []): number {
     const events: { key: string; type: EventNotification['type']; text: string }[] = [];
     for (const job of jobs) events.push({ key: `job:${job.source}:${job.sourceId}`, type: 'job_found',
       text: `ProjetoHUB — nova vaga encontrada\n${job.title.slice(0, 300)} · ${job.company.slice(0, 300)}\n${job.location.slice(0, 300)}\nFonte: ${job.source}\n${job.originalUrl}` });
@@ -49,10 +49,12 @@ export class WhatsAppStore {
       if (!type) continue;
       const label = { application_started: 'Rascunho de candidatura criado', approval_needed: 'Candidatura precisa de aprovação',
         submission_started: 'Envio de candidatura iniciado', application_submitted: 'Candidatura confirmada como enviada',
-        submission_uncertain: 'Resultado do envio da candidatura incerto', job_found: 'Nova vaga' }[type];
+        submission_uncertain: 'Resultado do envio da candidatura incerto', job_found: 'Nova vaga', task_error: 'Erro em tarefa' }[type];
       events.push({ key: `application:${app.id}:${index}`, type,
         text: `ProjetoHUB — ${label}\n${app.title.slice(0, 300)} · ${app.company.slice(0, 300)}\nCandidatura: ${app.id}\n${app.originalUrl}` });
     }
+    for (const task of tasks) if (task.status === 'failed' && !task.instruction.startsWith('notification:')) events.push({ key: `task:${task.id}:failed`, type: 'task_error',
+      text: `ProjetoHUB — tarefa interrompida por erro\nID: ${task.id}\nConfira o erro e o histórico no painel do escritório.` });
     if (!this.state.observedEvents) {
       this.state.observedEvents = events.map((item) => item.key); this.state.notifications ??= []; this.save(); return 0;
     }

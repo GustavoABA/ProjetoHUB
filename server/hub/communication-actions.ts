@@ -26,7 +26,7 @@ export function reconcileQuestionTasks(hub: HubStore, whatsapp: WhatsAppStore, r
   for (const notification of notifications) {
     const instruction = `notification:${notification.id}`;
     if (notification.state !== 'pending' || assigned.has(instruction)) continue;
-    hub.createTask({ agentId: communicator.id, instruction, priority: notification.type === 'approval_needed' ? 4 : 2 });
+    hub.createTask({ agentId: communicator.id, instruction, priority: ['approval_needed', 'task_error'].includes(notification.type) ? 4 : 2 });
     assigned.add(instruction); created++;
   }
   return created;
