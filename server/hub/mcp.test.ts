@@ -8,6 +8,7 @@ import { JobStore } from './jobs';
 import { ApplicationStore } from './applications';
 import { ModelRouter } from './router';
 import { AdminKeyStore, createMcpRequestHandler } from './mcp';
+import { WhatsAppStore } from './whatsapp';
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -23,9 +24,14 @@ test('MCP exige chave, rejeita Origin desconhecida e executa ferramentas autenti
   const router = new ModelRouter(join(dir, 'router.json'));
   const primary = router.add({ provider: 'ollama', model: 'primary', priority: 1 });
   const backup = router.add({ provider: 'ollama', model: 'backup', priority: 2 });
+  const applications = new ApplicationStore(join(dir, 'applications.json'));
+  const whatsapp = new WhatsAppStore(join(dir, 'whatsapp.json'));
+  whatsapp.reconcileEvents([], []);
+  const application = applications.create({ jobId: 'job-1', source: 'Remotive', sourceId: '1',
+    originalUrl: 'https://remotive.com/remote-jobs/test', title: 'Auxiliar', company: 'Empresa' });
+  whatsapp.reconcileEvents([], applications.list());
   const handler = createMcpRequestHandler({ hub, jobs: new JobStore(join(dir, 'jobs.json')),
-    applications: new ApplicationStore(join(dir, 'applications.json')),
-    router, keys, allowedHosts });
+    applications, whatsapp, router, keys, allowedHosts });
   const server = createServer(handler);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const addr = server.address(); if (!addr || typeof addr === 'string') throw new Error('Sem porta');
@@ -41,6 +47,9 @@ test('MCP exige chave, rejeita Origin desconhecida e executa ferramentas autenti
     const listed = await post('tools/list', {}, key);
     expect(listed.status).toBe(200);
     expect(await listed.text()).toContain('criar_agente');
+    const pending = await post('tools/call', { name: 'consultar_notificacoes_pendentes', arguments: {} }, key);
+    expect(pending.status).toBe(200);
+    expect(await pending.text()).toContain(application.id);
     const hosted = () => new Promise<number>((resolve, reject) => {
       const req = request({ hostname: '127.0.0.1', port: addr.port, path: '/mcp', method: 'POST', headers: { host: 'office.ngrok.app', authorization: `Bearer ${key}`,
         'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-11-25' } }, (response) => {

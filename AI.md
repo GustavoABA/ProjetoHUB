@@ -350,3 +350,5 @@ O serviço agora observa vagas salvas e transições do histórico de candidatur
 
 **Verificação desta atualização:** 12 testes direcionados de comunicação/WhatsApp passaram. `npm test` passou com 2.042 testes aprovados e 18 ignorados em 191 arquivos; checagem de tipos e build passaram. Os envios usaram respostas simuladas da Evolution. O teste cobre deduplicação, persistência, resultado incerto após reinício, coexistência com pergunta pendente e sequência de rascunho → aprovação necessária → envio iniciado → confirmação. O HUD atualizado ainda não foi inspecionado visualmente nesta rodada.
 
+A ferramenta MCP autenticada `consultar_notificacoes_pendentes` também expõe perguntas pendentes e avisos WhatsApp que não foram aceitos pela Evolution, incluindo resultados incertos para revisão.
+

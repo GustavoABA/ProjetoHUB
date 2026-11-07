@@ -555,7 +555,7 @@ if (Number.isInteger(mcpPort) && mcpPort > 0 && mcpPort <= 65_535 && mcpPort !==
   const publicHost = process.env.PROJECTHUB_MCP_PUBLIC_HOST?.trim().toLowerCase();
   const allowedHosts = ['127.0.0.1', 'localhost', ...(publicHost ? [publicHost] : [])];
   mcpServer = startMcpServer({ hub: projectHub, jobs: jobStore, applications: applicationStore,
-    router: modelRouter, keys: mcpKeys, allowedHosts }, mcpPort);
+    router: modelRouter, keys: mcpKeys, allowedHosts, whatsapp: whatsAppStore }, mcpPort);
   let activeTunnelHost: string | undefined;
   ngrokManager = new NgrokManager(mcpPort, (status) => {
     const newHost = status.running && status.publicUrl ? new URL(status.publicUrl).hostname : undefined;

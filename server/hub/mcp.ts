@@ -9,6 +9,7 @@ import type { HubStore } from './store';
 import type { JobStore } from './jobs';
 import type { ApplicationStore } from './applications';
 import type { ModelRouter } from './router';
+import type { WhatsAppStore } from './whatsapp';
 
 export class AdminKeyStore {
   private hash: string | undefined;
@@ -39,7 +40,7 @@ export class AdminKeyStore {
   }
 }
 
-export interface McpDependencies { hub: HubStore; jobs: JobStore; applications: ApplicationStore; router: ModelRouter; keys: AdminKeyStore; allowedHosts: string[] }
+export interface McpDependencies { hub: HubStore; jobs: JobStore; applications: ApplicationStore; router: ModelRouter; keys: AdminKeyStore; allowedHosts: string[]; whatsapp?: WhatsAppStore }
 const result = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }] });
 
 export function createMcpRequestHandler(deps: McpDependencies): (req: IncomingMessage, res: ServerResponse) => void {
@@ -98,8 +99,9 @@ export function createMcpRequestHandler(deps: McpDependencies): (req: IncomingMe
         jobs: deps.jobs.list().length, applications: deps.applications.list().length, pendingQuestions: questions.filter((q) => q.state === 'pending').length };
     });
     tool('consultar_roteador', 'Mostra modelos, disponibilidade de credenciais e uso registrado, sem segredos.', z.object({}), () => deps.router.status());
-    tool('consultar_notificacoes_pendentes', 'Mostra perguntas pendentes que exigem intervenção.', z.object({}),
-      () => deps.hub.listQuestions().filter((q) => q.state === 'pending'));
+    tool('consultar_notificacoes_pendentes', 'Mostra perguntas pendentes e avisos WhatsApp ainda não aceitos pela Evolution.', z.object({}),
+      () => ({ questions: deps.hub.listQuestions().filter((q) => q.state === 'pending'),
+        whatsappNotifications: deps.whatsapp?.status().notifications.filter((item) => item.state !== 'accepted') ?? [] }));
     return server;
   }, { legacy: 'stateless' });
   const node = toNodeHandler(handler);

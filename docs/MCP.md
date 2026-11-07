@@ -15,6 +15,8 @@ A chave é aleatória e somente seu hash é persistido em `<dataDir>/projecthub/
 
 `listar_agentes`, `criar_agente`, `atualizar_agente`, `encerrar_agente`, `criar_tarefa`, `consultar_tarefas`, `pausar_tarefa`, `retomar_tarefa`, `listar_vagas`, `consultar_candidaturas`, `solicitar_relatorio`, `consultar_roteador` e `consultar_notificacoes_pendentes`.
 
+`consultar_notificacoes_pendentes` devolve dois grupos: `questions` para perguntas aguardando resposta e `whatsappNotifications` para avisos de vagas ou candidaturas ainda não aceitos pela Evolution. Um aviso `uncertain` exige conferência manual na Evolution antes de qualquer nova tentativa; ele não é reenviado automaticamente.
+
 `atualizar_agente` aceita `id` e, opcionalmente, `nome` e `objetivo`. Para vincular um agente existente ao Codex, envie juntos `sessaoCodex` (UUID de uma sessão real) e `pastaCodex` (pasta Codex correspondente). Envie `null` nos dois campos para desvincular. O serviço rejeita troca durante um despacho em andamento. O MCP aceita identificadores informados pelo administrador autenticado; o HUD oferece apenas sessões detectadas localmente. Ao desvincular, tarefas pendentes voltam à execução local pelo Ollama quando não há modelo escolhido.
 
 `criar_agente` e `atualizar_agente` também aceitam `modeloId` e `modelosReservaIds` (lista ordenada de até três modelos cadastrados) para agentes sem Codex. Em `atualizar_agente`, envie `modeloId: null` e `modelosReservaIds: []` para voltar ao Ollama automático. As reservas só são tentadas após falhas recuperáveis, com o contexto da tarefa, e podem usar outro provedor configurado.
