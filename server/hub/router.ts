@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { ProviderCredentials } from './provider-credentials';
 
 export type Provider = 'openai' | 'anthropic' | 'gemini' | 'deepseek' | 'openrouter' | 'ollama';
 export type Message = { role: 'system' | 'user' | 'assistant'; content: string };
@@ -25,7 +26,8 @@ function validMessages(messages: Message[]): void {
 
 export class ModelRouter {
   private state: State;
-  constructor(public readonly file: string, private readonly fetcher: typeof fetch = fetch, private readonly env: NodeJS.ProcessEnv = process.env) {
+  constructor(public readonly file: string, private readonly fetcher: typeof fetch = fetch, private readonly env: NodeJS.ProcessEnv = process.env,
+    private readonly credentials?: ProviderCredentials) {
     if (existsSync(file)) {
       const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
       if (!parsed || typeof parsed !== 'object' || (parsed as State).version !== 1 || !Array.isArray((parsed as State).models) || !(parsed as State).usage) throw new Error('Configuração de modelos incompatível ou corrompida');
@@ -39,7 +41,7 @@ export class ModelRouter {
     renameSync(temp, this.file);
   }
   status() {
-    return { models: this.state.models.map((m) => ({ ...m, available: m.enabled && (keys[m.provider] === null || Boolean(this.env[keys[m.provider]!])) })), usage: { ...this.state.usage }, lastError: this.state.lastError };
+    return { models: this.state.models.map((m) => ({ ...m, available: m.enabled && (this.credentials?.configured(m.provider) ?? (keys[m.provider] === null || Boolean(this.env[keys[m.provider]!]))) })), usage: { ...this.state.usage }, lastError: this.state.lastError };
   }
   /** Register the smallest installed local model only when the user has not configured Ollama. */
   async discoverLocalModel(): Promise<Model | undefined> {
@@ -87,10 +89,12 @@ export class ModelRouter {
   }
   async complete(messages: Message[], onlyProvider?: Provider): Promise<Completion> {
     validMessages(messages);
-    const available = this.state.models.filter((m) => m.enabled && (!onlyProvider || m.provider === onlyProvider) && (keys[m.provider] === null || this.env[keys[m.provider]!])).sort((a, b) => a.priority - b.priority);
+    const available = this.state.models.filter((m) => m.enabled && (!onlyProvider || m.provider === onlyProvider) && (this.credentials?.configured(m.provider) ?? (keys[m.provider] === null || this.env[keys[m.provider]!]))).sort((a, b) => a.priority - b.priority);
     if (!available.length) throw new Error('Nenhum modelo disponível: cadastre um modelo e configure a credencial do provedor');
     for (const model of available) {
-      const key = keys[model.provider] ? this.env[keys[model.provider]!] : undefined;
+      let key: string | undefined;
+      try { key = this.credentials ? await this.credentials.get(model.provider) : keys[model.provider] ? this.env[keys[model.provider]!] : undefined; }
+      catch { this.state.lastError = `${model.provider}: credencial local indisponível`; this.save(); continue; }
       const anthropic = model.provider === 'anthropic';
       const system = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n\n');
       const body = anthropic ? { model: model.model, max_tokens: 1024, ...(system ? { system } : {}), messages: messages.filter((m) => m.role !== 'system') } : { model: model.model, messages };

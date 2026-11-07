@@ -75,6 +75,7 @@ import { ConnectionPublisher } from './hub/connection-publisher';
 import { BackupManager } from './hub/backup';
 import { WindowsStartupManager } from './hub/windows-startup';
 import { EvolutionSettings } from './hub/evolution-settings';
+import { ProviderCredentials } from './hub/provider-credentials';
 
 const config = loadConfig();
 const startedAt = Date.now();
@@ -98,7 +99,8 @@ const projectHub = new HubStore(join(config.dataDir, 'projecthub', 'state.json')
 projectHub.ensureJobSearchTeam();
 const jobStore = new JobStore(join(config.dataDir, 'projecthub', 'jobs.json'));
 const browserManager = new BrowserManager({ profileDir: join(config.dataDir, 'projecthub', 'browser-profile'), logFile: join(config.dataDir, 'projecthub', 'navigation.jsonl') });
-const modelRouter = new ModelRouter(join(config.dataDir, 'projecthub', 'router.json'));
+const providerCredentials = new ProviderCredentials(join(config.dataDir, 'projecthub', 'provider-credentials.json'));
+const modelRouter = new ModelRouter(join(config.dataDir, 'projecthub', 'router.json'), fetch, process.env, providerCredentials);
 const applicationStore = new ApplicationStore(join(config.dataDir, 'projecthub', 'applications.json'));
 const profileStore = new ProfileStore(join(config.dataDir, 'projecthub', 'profile.json'));
 const whatsAppStore = new WhatsAppStore(join(config.dataDir, 'projecthub', 'whatsapp.json'));
@@ -494,7 +496,7 @@ server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
-    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher, backupManager, windowsStartup, evolutionSettings, webhookListener) && !api(req, res, url)) fallback(req, res, url);
+    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher, backupManager, windowsStartup, evolutionSettings, webhookListener, providerCredentials) && !api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(tr('Erro ao responder {0} {1}: {2}', [req.method, url.pathname, errMsg(err)]));
     if (!res.headersSent) sendJson(res, 500, { error: tr('erro interno') });

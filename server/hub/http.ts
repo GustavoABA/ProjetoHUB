@@ -16,6 +16,7 @@ import type { BackupManager } from './backup';
 import type { WindowsStartupManager } from './windows-startup';
 import type { EvolutionSettings } from './evolution-settings';
 import type { WebhookListener } from './webhook-listener';
+import type { ProviderCredentials } from './provider-credentials';
 import { configureJobWebhook, connectJobInstance, ensureJobInstance } from './evolution-instance';
 
 function record(value: unknown): Record<string, unknown> {
@@ -31,7 +32,7 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /** Routes are mounted only on the local server, after the normal Host/Origin guard. */
-export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore, ngrok?: NgrokManager, session?: ConnectionSession, publisher?: ConnectionPublisher, backups?: BackupManager, windowsStartup?: WindowsStartupManager, evolution?: EvolutionSettings, webhookListener?: WebhookListener): boolean {
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore, ngrok?: NgrokManager, session?: ConnectionSession, publisher?: ConnectionPublisher, backups?: BackupManager, windowsStartup?: WindowsStartupManager, evolution?: EvolutionSettings, webhookListener?: WebhookListener, providerCredentials?: ProviderCredentials): boolean {
   const path = url.pathname;
   if (!path.startsWith('/api/hub/')) return false;
   const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
@@ -180,6 +181,27 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
   if (path === '/api/hub/router') {
     if (req.method !== 'GET') sendJson(res, 405, { error: 'Método não permitido' });
     else sendJson(res, 200, router?.status() ?? { models: [], usage: { inputTokens: 0, outputTokens: 0, requests: 0 } });
+    return true;
+  }
+  if (path === '/api/hub/router/credentials') {
+    if (!providerCredentials) sendJson(res, 503, { error: 'Credenciais de modelos indisponíveis' });
+    else if (req.method === 'GET') sendJson(res, 200, providerCredentials.status());
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  const credentialAction = /^\/api\/hub\/router\/credentials\/([a-z]+)$/.exec(path);
+  if (credentialAction) {
+    if (!providerCredentials) sendJson(res, 503, { error: 'Credenciais de modelos indisponíveis' });
+    else if (req.method === 'PUT') void readJson(req).then(async (raw) => {
+      await providerCredentials.set(credentialAction[1] as Provider, string(record(raw).key, 'credencial'));
+      return providerCredentials.status()[credentialAction[1] as Exclude<Provider, 'ollama'>];
+    }).then((result) => sendJson(res, 200, result)).catch((error) => fail(res, error));
+    else if (req.method === 'DELETE') {
+      req.resume();
+      try { providerCredentials.clear(credentialAction[1] as Provider);
+        sendJson(res, 200, providerCredentials.status()[credentialAction[1] as Exclude<Provider, 'ollama'>]); }
+      catch (error) { fail(res, error); }
+    } else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
   if (path.startsWith('/api/hub/router/')) {

@@ -11,6 +11,7 @@ type EvolutionInstanceResult = { instance: string; created?: boolean; status?: s
 type Schedule = { query?: string; intervalHours?: number; enabled: boolean; nextRunAt?: string; lastError?: string };
 type BrowserStatus = { running: boolean; headless: boolean; manual: boolean; pages: { id: string; url: string }[] };
 type RouterStatus = { models: { id: string; provider: string; model: string; priority: number; enabled: boolean; available: boolean }[]; usage: { inputTokens: number; outputTokens: number; requests: number }; lastError?: string };
+type ProviderCredentialStatus = Record<string, { configured: boolean; source: 'windows' | 'environment' | null }>;
 type McpStatus = { configured: boolean; port: number; ngrok: { installed: boolean; running: boolean; mcpUrl?: string; error?: string }; github: { configured: boolean; lastPublishAt?: string; lastError?: string } };
 type AdminSession = { installationId: string; startedAt: string; expiresAt: string; policy: 'renew' | 'notify' | 'close'; remainingSeconds: number; expired: boolean };
 type BackupStatus = { backups: { id: string; createdAt: string; size: number }[]; pendingRestore?: string };
@@ -68,7 +69,8 @@ export function mountHubPanel(): void {
     <form id="hub-application-form"><label>Vaga<select name="job" required></select></label><button>Preparar candidatura</button></form><ul id="hub-applications"></ul>
     <h3>Navegador</h3><div><button type="button" data-browser-visible>Abrir visível</button> <button type="button" data-browser-headless>Abrir em segundo plano</button> <button type="button" data-browser-manual>Assumir controle</button> <button type="button" data-browser-stop>Fechar</button></div>
     <form id="hub-browser-form"><label>Endereço<input name="url" type="url" required placeholder="https://..."></label><button>Abrir página</button></form><p id="hub-browser-status"></p><ul id="hub-browser-pages"></ul>
-    <h3>Modelos de IA</h3><p>Configure a chave do provedor no ambiente do serviço antes de iniciá-lo. A autenticação do Codex não é usada como chave de API.</p>
+    <h3>Modelos de IA</h3><p>No Windows, salve as chaves de API nesta conta pelo painel. O campo será apagado após salvar. Se o serviço já tiver uma chave no ambiente, ela tem prioridade. A autenticação do Codex não é usada como chave de API.</p>
+    <form id="hub-credential-form"><label>Provedor<select name="provider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Google Gemini</option><option value="deepseek">DeepSeek</option><option value="openrouter">OpenRouter</option></select></label><label>Chave de API<input name="key" type="password" autocomplete="new-password" maxlength="4096" required></label><button data-provider-save>Salvar chave</button><button type="button" data-provider-clear>Remover chave local</button></form><p id="hub-credential-status"></p>
     <form id="hub-model-form"><label>Provedor<select name="provider"><option value="openai">OpenAI · OPENAI_API_KEY</option><option value="anthropic">Anthropic · ANTHROPIC_API_KEY</option><option value="gemini">Gemini · GEMINI_API_KEY</option><option value="deepseek">DeepSeek · DEEPSEEK_API_KEY</option><option value="openrouter">OpenRouter · OPENROUTER_API_KEY</option><option value="ollama">Ollama local</option></select></label><label>Modelo<input name="model" required placeholder="Nome exato do modelo"></label><label>Prioridade<input name="priority" type="number" min="1" max="1000" value="1" required></label><button>Cadastrar modelo</button></form>
     <p id="hub-router-status"></p><ul id="hub-models"></ul>
     <form id="hub-model-test"><label>Teste do roteador<input name="prompt" maxlength="2000" required placeholder="Escreva uma pergunta"></label><button>Testar modelo</button></form><p id="hub-model-result"></p>
@@ -88,6 +90,7 @@ export function mountHubPanel(): void {
   const scheduleForm = panel.querySelector('#hub-schedule-form') as HTMLFormElement;
   const browserForm = panel.querySelector('#hub-browser-form') as HTMLFormElement;
   const modelForm = panel.querySelector('#hub-model-form') as HTMLFormElement;
+  const credentialForm = panel.querySelector('#hub-credential-form') as HTMLFormElement;
   const modelTest = panel.querySelector('#hub-model-test') as HTMLFormElement;
   const sessions = agentForm.elements.namedItem('session') as HTMLSelectElement;
   const parents = agentForm.elements.namedItem('parent') as HTMLSelectElement;
@@ -99,10 +102,11 @@ export function mountHubPanel(): void {
   let currentMcpKey: string | undefined;
   let currentMcpUrl = 'http://127.0.0.1:4748/mcp';
   let suggestedWebhookUrl = '';
+  let providerStatuses: ProviderCredentialStatus = {};
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
 
   async function refresh(): Promise<void> {
-    const [agents, tasks, questions, whatsapp, evolution, listener, profile, jobs, applications, schedule, browser, router, mcp, adminSession, backups, windowsStartup, snapshot, health] = await Promise.all([
+    const [agents, tasks, questions, whatsapp, evolution, listener, profile, jobs, applications, schedule, browser, router, credentials, mcp, adminSession, backups, windowsStartup, snapshot, health] = await Promise.all([
       api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'),
       api<Question[]>('/api/hub/questions'),
       api<WhatsAppStatus>('/api/hub/whatsapp'),
@@ -114,6 +118,7 @@ export function mountHubPanel(): void {
       api<Schedule>('/api/hub/jobs/schedule'),
       api<BrowserStatus>('/api/hub/browser'),
       api<RouterStatus>('/api/hub/router'),
+      api<ProviderCredentialStatus>('/api/hub/router/credentials'),
       api<McpStatus>('/api/hub/mcp'),
       api<AdminSession>('/api/hub/mcp/session'),
       api<BackupStatus>('/api/hub/backups'),
@@ -159,6 +164,13 @@ export function mountHubPanel(): void {
     (panel.querySelector('#hub-listener-status') as HTMLElement).textContent = listener.running
       ? `Recebimento ativo na porta ${listener.port}${listener.exposeLan ? ' para a rede local' : ' somente neste computador'}.`
       : listener.enabled ? `Recebimento indisponível: ${listener.error ?? 'aguardando nova tentativa'}.` : 'Recebimento desligado.';
+    providerStatuses = credentials;
+    const chosenProvider = (credentialForm.elements.namedItem('provider') as HTMLSelectElement).value;
+    const chosenCredential = credentials[chosenProvider];
+    (credentialForm.elements.namedItem('key') as HTMLInputElement).disabled = chosenCredential?.source === 'environment';
+    (credentialForm.querySelector('[data-provider-save]') as HTMLButtonElement).disabled = chosenCredential?.source === 'environment';
+    (credentialForm.querySelector('[data-provider-clear]') as HTMLButtonElement).disabled = chosenCredential?.source !== 'windows';
+    (panel.querySelector('#hub-credential-status') as HTMLElement).textContent = Object.entries(credentials).map(([name, state]) => `${name}: ${state.source === 'windows' ? 'chave protegida no Windows' : state.source === 'environment' ? 'chave do ambiente' : 'chave pendente'}`).join(' · ');
     (panel.querySelector('#hub-evolution-manager') as HTMLAnchorElement).href = `${evolution.baseUrl}/manager`;
     (panel.querySelector('#hub-evolution-status') as HTMLElement).textContent = `${evolution.baseUrl} · ${evolution.apiKeySource === 'windows' ? 'chave protegida para este usuário do Windows' : evolution.apiKeySource === 'environment' ? 'chave fornecida pelo ambiente do serviço' : 'chave pendente'}.`;
     const evolutionKeyInput = evolutionForm.elements.namedItem('apiKey') as HTMLInputElement;
@@ -366,7 +378,7 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
-    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || listenerForm.contains(document.activeElement) || webhookForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || listenerForm.contains(document.activeElement) || webhookForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || credentialForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
@@ -415,6 +427,24 @@ export function mountHubPanel(): void {
   listenerForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(listenerForm);
     void api<WebhookListenerStatus>('/api/hub/whatsapp/listener', { port: Number(data.get('port')), enabled: data.has('enabled'), exposeLan: data.has('exposeLan') }, 'PUT')
       .then((status) => { message.textContent = status.running ? 'Recebimento do WhatsApp ativo.' : status.enabled ? `Recebimento indisponível: ${status.error ?? 'verifique a porta'}.` : 'Recebimento do WhatsApp desligado.'; return refresh(); }).catch(showError);
+  };
+  (credentialForm.elements.namedItem('provider') as HTMLSelectElement).onchange = () => {
+    (credentialForm.elements.namedItem('key') as HTMLInputElement).value = '';
+    void refresh().catch(showError);
+  };
+  credentialForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(credentialForm);
+    const provider = String(data.get('provider'));
+    void api(`/api/hub/router/credentials/${provider}`, { key: data.get('key') }, 'PUT').then(() => {
+      (credentialForm.elements.namedItem('key') as HTMLInputElement).value = '';
+      message.textContent = 'Chave protegida para esta conta do Windows.'; return refresh();
+    }).catch(showError);
+  };
+  (credentialForm.querySelector('[data-provider-clear]') as HTMLButtonElement).onclick = () => {
+    const provider = (credentialForm.elements.namedItem('provider') as HTMLSelectElement).value;
+    if (providerStatuses[provider]?.source !== 'windows') return;
+    void api(`/api/hub/router/credentials/${provider}`, {}, 'DELETE').then(() => {
+      message.textContent = 'Chave local removida.'; return refresh();
+    }).catch(showError);
   };
   webhookForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(webhookForm);
     void api('/api/hub/whatsapp/webhook', { url: data.get('url') }).then(() => {

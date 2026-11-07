@@ -16,6 +16,7 @@ import { BackupManager } from './backup';
 import { WindowsStartupManager } from './windows-startup';
 import { EvolutionSettings } from './evolution-settings';
 import { WebhookListener } from './webhook-listener';
+import { ProviderCredentials } from './provider-credentials';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -95,6 +96,31 @@ it('configures Evolution through the local API without returning its key', async
     expect((await (await fetch(base)).json()).apiKeyConfigured).toBe(true);
     await fetch(base + '/diagnostics');
     expect(urls).toEqual(['https://evolution.example.test/api/', 'https://evolution.example.test/api/instance/fetchInstances']);
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+it('saves a provider credential through the local API without returning the key', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
+  const credentials = new ProviderCredentials(join(dir, 'provider-credentials.json'), {}, 'win32', {
+    protect: async (value) => `encrypted:${value.split('').reverse().join('')}`,
+    unprotect: async (value) => value.slice(10).split('').reverse().join(''),
+  });
+  const hub = new HubStore(join(dir, 'state.json'));
+  const server = http.createServer((req, res) => handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), hub,
+    undefined, fetch, undefined, undefined, undefined, undefined, undefined,
+    undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, credentials));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const base = `http://127.0.0.1:${address.port}/api/hub/router/credentials`;
+    const saved = await fetch(`${base}/openai`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"key":"sk-private-test-key"}' });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toEqual({ configured: true, source: 'windows' });
+    const listed = await (await fetch(base)).text();
+    expect(listed).not.toContain('sk-private-test-key');
+    expect(JSON.parse(listed).openai).toEqual({ configured: true, source: 'windows' });
+    expect((await fetch(`${base}/openai`, { method: 'DELETE' })).status).toBe(200);
+    expect(credentials.status().openai.configured).toBe(false);
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 

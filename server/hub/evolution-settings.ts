@@ -5,7 +5,7 @@ import { isIP } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-type Cipher = { protect(value: string): Promise<string>; unprotect(value: string): Promise<string> };
+export type Cipher = { protect(value: string): Promise<string>; unprotect(value: string): Promise<string> };
 type State = { version: 1; baseUrl: string; protectedKey?: string };
 const DEFAULT_URL = 'http://127.0.0.1:8080';
 
@@ -44,7 +44,7 @@ function dpapi(action: 'Protect' | 'Unprotect', value: string): Promise<string> 
     child.stdin.end(value, 'utf8');
   });
 }
-const windowsCipher: Cipher = { protect: (value) => dpapi('Protect', value), unprotect: (value) => dpapi('Unprotect', value) };
+export const windowsCipher: Cipher = { protect: (value) => dpapi('Protect', value), unprotect: (value) => dpapi('Unprotect', value) };
 
 /** The Evolution key is encrypted for the current Windows user; Linux/Docker can use an environment key. */
 export class EvolutionSettings {
