@@ -4,12 +4,12 @@ import { dirname } from 'node:path';
 
 export interface JobListing {
   id: string;
-  source: 'Remotive';
+  source: 'Remotive' | 'Greenhouse';
   sourceId: string;
   company: string;
   title: string;
   location: string;
-  mode: 'remote';
+  mode: 'remote' | 'hybrid' | 'onsite' | 'unspecified';
   salary?: string;
   description: string;
   requirements: string[];
@@ -31,7 +31,7 @@ function text(value: unknown, max: number): string {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
 }
 
-function plain(html: unknown): string {
+export function plainJobDescription(html: unknown): string {
   return text(html, 50_000)
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
@@ -59,7 +59,7 @@ function parseJob(raw: unknown, now: Date): JobListing | undefined {
     id: randomUUID(), source: 'Remotive', sourceId: String(job.id), title, company,
     location: text(job.candidate_required_location, 300) || 'Não informada', mode: 'remote',
     ...(text(job.salary, 200) ? { salary: text(job.salary, 200) } : {}),
-    description: plain(job.description), requirements: [], originalUrl: url.href,
+    description: plainJobDescription(job.description), requirements: [], originalUrl: url.href,
     ...(published && Number.isFinite(Date.parse(published)) ? { publishedAt: new Date(published).toISOString() } : {}),
     discoveredAt: now.toISOString(), compatibility: null,
     justification: 'Avaliação pendente: currículo e requisitos ainda não analisados.', applicationStatus: 'not_started',
@@ -131,13 +131,22 @@ export class JobStore {
     return this.state.attempts.length - 1;
   }
   finish(index: number, jobs: JobListing[]): number {
+    const added = this.insert(jobs);
+    this.state.attempts[index].ok = true;
+    this.save();
+    return added;
+  }
+  addListings(jobs: JobListing[]): number {
+    const added = this.insert(jobs);
+    if (added) this.save();
+    return added;
+  }
+  private insert(jobs: JobListing[]): number {
     let added = 0;
     for (const job of jobs) {
       if (this.state.jobs.some((old) => old.source === job.source && old.sourceId === job.sourceId)) continue;
       this.state.jobs.push(job); added++;
     }
-    this.state.attempts[index].ok = true;
-    this.save();
     return added;
   }
   private save(): void {

@@ -9,6 +9,7 @@ import { ApplicationStore } from './applications';
 import { reconcileAnalysisTasks, reconcileCompatibilityTasks, runJobAction } from './job-actions';
 import { dispatchWithLocalFallback } from './dispatcher';
 import type { ModelRouter } from './router';
+import { GreenhouseBoardStore } from './greenhouse';
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -19,6 +20,25 @@ function fixture() {
 }
 const response = async () => new Response(JSON.stringify({ jobs: [{ id: 88, url: 'https://remotive.com/remote-jobs/support/assistant-88',
   title: 'Assistente remoto', company_name: 'Empresa', description: '<p>Conhecimento em Excel.</p>' }] }), { status: 200 });
+
+it('continues research with a registered career board when Remotive is unavailable', async () => {
+  const { dir, hub, jobs, profile } = fixture();
+  const boards = new GreenhouseBoardStore(join(dir, 'greenhouse-boards.json'));
+  boards.addVerified('empresa', 'Empresa verificada');
+  const researcher = hub.listAgents().find((agent) => agent.systemKey === 'job-search/researcher')!;
+  const task = hub.createTask({ agentId: researcher.id, instruction: 'assistente' });
+  const fetcher = async (url: URL | RequestInfo) => String(url).includes('greenhouse.io')
+    ? new Response(JSON.stringify({ jobs: [{ id: 42, internal_job_id: 9, title: 'Assistente',
+      location: { name: 'São Paulo' }, content: '<p>Atendimento</p>',
+      absolute_url: 'https://job-boards.greenhouse.io/empresa/jobs/42' }] }), { status: 200 })
+    : new Response('indisponível', { status: 503 });
+  const result = await runJobAction(task, researcher, { hub, jobs, profile, router: { complete: async () => { throw new Error('unused'); } },
+    greenhouseBoards: boards, fetcher: fetcher as typeof fetch });
+  expect(result).toContain('Greenhouse: 1 vaga(s) nova(s)');
+  expect(result).toContain('Remotive:');
+  expect(jobs.list()).toMatchObject([{ source: 'Greenhouse', sourceId: 'empresa:42' }]);
+  expect(hub.listTasks().some((item) => item.agentId !== researcher.id && item.instruction === jobs.list()[0].id)).toBe(true);
+});
 
 it('delegates each unanalysed source-backed vacancy once, including after restart', async () => {
   const { dir, hub, jobs } = fixture();

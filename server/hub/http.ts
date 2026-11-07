@@ -20,6 +20,7 @@ import type { WebhookListener } from './webhook-listener';
 import type { ProviderCredentials } from './provider-credentials';
 import type { TaskRuntime } from './task-runtime';
 import { configureJobWebhook, connectJobInstance, ensureJobInstance } from './evolution-instance';
+import { registerGreenhouseBoard, searchGreenhouseBoards, type GreenhouseBoardStore } from './greenhouse';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Corpo JSON inválido');
@@ -40,7 +41,7 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /** Routes are mounted only on the local server, after the normal Host/Origin guard. */
-export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore, ngrok?: NgrokManager, session?: ConnectionSession, publisher?: ConnectionPublisher, backups?: BackupManager, windowsStartup?: WindowsStartupManager, evolution?: EvolutionSettings, webhookListener?: WebhookListener, providerCredentials?: ProviderCredentials, taskRuntime?: TaskRuntime): boolean {
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore, ngrok?: NgrokManager, session?: ConnectionSession, publisher?: ConnectionPublisher, backups?: BackupManager, windowsStartup?: WindowsStartupManager, evolution?: EvolutionSettings, webhookListener?: WebhookListener, providerCredentials?: ProviderCredentials, taskRuntime?: TaskRuntime, greenhouseBoards?: GreenhouseBoardStore): boolean {
   const path = url.pathname;
   if (!path.startsWith('/api/hub/')) return false;
   const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
@@ -404,6 +405,28 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
         justification: job.profileRevision && (!revision?.confirmedAt || job.profileRevision !== revision.revision) ? 'Perfil alterado: a compatibilidade anterior está desatualizada. Reanalise a vaga.' : job.justification,
         applicationStatus: byJob.get(job.id) ?? job.applicationStatus })) ?? []);
     }
+    return true;
+  }
+  if (path === '/api/hub/jobs/greenhouse/boards') {
+    if (!greenhouseBoards) sendJson(res, 503, { error: 'Páginas de carreira indisponíveis' });
+    else if (req.method === 'GET') sendJson(res, 200, greenhouseBoards.list());
+    else if (req.method === 'POST') void readJson(req).then((raw) => registerGreenhouseBoard(greenhouseBoards,
+      string(record(raw).url, 'endereço'), fetcher)).then((board) => sendJson(res, 201, board)).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  const greenhouseBoard = /^\/api\/hub\/jobs\/greenhouse\/boards\/([A-Za-z0-9_-]+)$/.exec(path);
+  if (greenhouseBoard) {
+    if (!greenhouseBoards) sendJson(res, 503, { error: 'Páginas de carreira indisponíveis' });
+    else if (req.method !== 'DELETE') sendJson(res, 405, { error: 'Método não permitido' });
+    else { req.resume(); sendJson(res, greenhouseBoards.remove(greenhouseBoard[1]) ? 200 : 404, { removed: greenhouseBoard[1] }); }
+    return true;
+  }
+  if (path === '/api/hub/jobs/greenhouse/search') {
+    if (!greenhouseBoards || !jobs) sendJson(res, 503, { error: 'Pesquisa Greenhouse indisponível' });
+    else if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
+    else void readJson(req).then((raw) => searchGreenhouseBoards(greenhouseBoards, jobs,
+      string(record(raw).query, 'pesquisa'), fetcher)).then((result) => sendJson(res, 200, result)).catch((error) => fail(res, error));
     return true;
   }
   const jobAction = /^\/api\/hub\/jobs\/([0-9a-f-]+)\/analyze$/.exec(path);

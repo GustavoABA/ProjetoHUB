@@ -16,12 +16,14 @@ it('backs up allowlisted state and evidence, verifies integrity, and restores on
   writeFileSync(join(dir, 'state.json'), '{"version":1,"agents":[],"tasks":[]}');
   writeFileSync(join(dir, 'whatsapp.json'), '{"messages":[]}');
   writeFileSync(join(dir, 'webhook-listener.json'), '{"version":1,"enabled":true,"port":4770,"exposeLan":false}');
+  writeFileSync(join(dir, 'greenhouse-boards.json'), '{"version":1,"boards":[]}');
   writeFileSync(join(dir, 'mcp-admin.json'), 'hash excluded');
   mkdirSync(join(dir, 'application-evidence'));
   writeFileSync(join(dir, 'application-evidence', 'abc.png'), 'png evidence');
   const backup = manager.create();
   expect(manager.verify(backup.id).files).toContain('state.json');
   expect(manager.verify(backup.id).files).toContain('webhook-listener.json');
+  expect(manager.verify(backup.id).files).toContain('greenhouse-boards.json');
   writeFileSync(join(dir, 'state.json'), '{"version":1,"agents":["changed"],"tasks":[]}');
   writeFileSync(join(dir, 'webhook-listener.json'), '{"version":1,"enabled":false,"port":4771,"exposeLan":false}');
   writeFileSync(join(dir, 'jobs.json'), '{"version":1}');

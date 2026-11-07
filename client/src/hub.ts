@@ -4,6 +4,7 @@ type ExecutionStatus = { maxConcurrent: number; active: number };
 type Session = { name: string; sessionId: string; account: string; provider: string };
 type Source = { label: string; path: string; provider: string };
 type Job = { id: string; title: string; company: string; location: string; source: string; originalUrl: string; salary?: string; compatibility: number | null; justification: string; requirements: string[]; analysisModel?: string; analyzedAt?: string; applicationStatus: string };
+type GreenhouseBoard = { token: string; company: string; lastSearchedAt?: string; lastError?: string };
 type Profile = { revision: string; skills: string[]; experience: string[]; education: string[]; confirmedAt?: string };
 type WhatsAppStatus = { instance: string; mainNumber?: string; secondaryNumber?: string; webhookTokenConfigured: boolean; apiKeyConfigured: boolean; webhookPort?: string | null; outbound: { questionId: string; state: string; error?: string }[] };
 type EvolutionStatus = { baseUrl: string; apiKeyConfigured: boolean; apiKeySource: 'windows' | 'environment' | null };
@@ -64,9 +65,10 @@ export function mountHubPanel(): void {
     <h3>Perfil profissional</h3><p>Informe apenas dados verdadeiros. Cada linha é uma competência, experiência ou formação. Após editar, confirme novamente o perfil para permitir a pontuação das vagas.</p>
     <form id="hub-profile-form"><label>Competências<textarea name="skills" rows="4" placeholder="Excel&#10;Atendimento"></textarea></label><label>Experiência<textarea name="experience" rows="4"></textarea></label><label>Formação<textarea name="education" rows="4"></textarea></label><button>Salvar perfil</button></form>
     <button type="button" data-confirm-profile>Confirmo que estes dados são meus e estão corretos</button><p id="hub-profile-status"></p>
-    <h3>Vagas remotas</h3><form id="hub-job-form"><label>Pesquisar na Remotive<input name="query" maxlength="100" required placeholder="Ex.: assistente, suporte, júnior"></label><button>Buscar vagas</button></form>
+    <h3>Vagas</h3><form id="hub-job-form"><label>Pesquisar na Remotive<input name="query" maxlength="100" required placeholder="Ex.: assistente, suporte, júnior"></label><button>Buscar vagas</button></form>
+    <h3>Páginas de carreira Greenhouse</h3><form id="hub-greenhouse-form"><label>Endereço público do quadro<input name="url" type="url" required placeholder="https://job-boards.greenhouse.io/empresa"></label><button>Cadastrar página</button></form><ul id="hub-greenhouse-boards"></ul><form id="hub-greenhouse-search"><label>Pesquisar nas páginas cadastradas<input name="query" maxlength="100" required placeholder="Ex.: assistente"></label><button>Buscar nas páginas</button></form>
     <form id="hub-schedule-form"><label>Pesquisa automática<input name="query" maxlength="100" required placeholder="Termo de pesquisa"></label><label>Intervalo<select name="interval"><option value="6">6 horas</option><option value="12">12 horas</option><option value="24">24 horas</option></select></label><label><span>Ativar</span><input name="enabled" type="checkbox"></label><button>Salvar agenda</button></form><p id="hub-schedule-status"></p>
-    <p>Fonte: Remotive. A consulta pública tem limite de quatro tentativas por dia; as vagas exibidas levam ao anúncio original.</p>
+    <p>Fontes: Remotive e páginas Greenhouse cadastradas por você. A Remotive tem limite de quatro tentativas por dia; as vagas exibidas levam ao anúncio original.</p>
     <h3>Candidaturas</h3><p>Respostas inseridas aqui devem ser confirmadas por você. Abra a página da vaga no navegador abaixo, faça login e acesse o formulário. O preparo tenta preencher campos com os mesmos rótulos das respostas. Revise tudo antes de autorizar e enviar. O sistema só marca como enviada quando a confirmação aparece na página.</p>
     <form id="hub-application-form"><label>Vaga<select name="job" required></select></label><button>Preparar candidatura</button></form><ul id="hub-applications"></ul>
     <h3>Navegador</h3><div><button type="button" data-browser-visible>Abrir visível</button> <button type="button" data-browser-headless>Abrir em segundo plano</button> <button type="button" data-browser-manual>Assumir controle</button> <button type="button" data-browser-stop>Fechar</button></div>
@@ -90,6 +92,8 @@ export function mountHubPanel(): void {
   const profileForm = panel.querySelector('#hub-profile-form') as HTMLFormElement;
   const applicationForm = panel.querySelector('#hub-application-form') as HTMLFormElement;
   const jobForm = panel.querySelector('#hub-job-form') as HTMLFormElement;
+  const greenhouseForm = panel.querySelector('#hub-greenhouse-form') as HTMLFormElement;
+  const greenhouseSearch = panel.querySelector('#hub-greenhouse-search') as HTMLFormElement;
   const scheduleForm = panel.querySelector('#hub-schedule-form') as HTMLFormElement;
   const browserForm = panel.querySelector('#hub-browser-form') as HTMLFormElement;
   const modelForm = panel.querySelector('#hub-model-form') as HTMLFormElement;
@@ -133,21 +137,21 @@ export function mountHubPanel(): void {
     taskInstruction.parentElement!.hidden = analyst || evaluator || specialist;
     taskInstruction.required = !analyst && !evaluator && !specialist;
     taskInstruction.disabled = analyst || evaluator || specialist;
-    taskInstruction.placeholder = researcher ? 'Termo de busca na Remotive, até 100 caracteres' : 'Descreva a tarefa';
+    taskInstruction.placeholder = researcher ? 'Termo de busca nas fontes cadastradas, até 100 caracteres' : 'Descreva a tarefa';
     taskInstruction.maxLength = researcher ? 100 : 10_000;
     taskJobLabel.hidden = !analyst && !evaluator && !specialist;
     taskJobSelect.required = analyst || evaluator || specialist;
     for (const item of taskJobSelect.options) item.disabled = evaluator && item.dataset.analyzed !== 'true';
     if (taskJobSelect.selectedOptions[0]?.disabled) taskJobSelect.value = [...taskJobSelect.options].find((item) => !item.disabled)?.value ?? '';
     (panel.querySelector('#hub-task-hint') as HTMLElement).textContent = researcher
-      ? 'Pesquisador de vagas: informe apenas o termo de busca. A consulta usa a Remotive e registra somente anúncios retornados pela fonte.'
+      ? 'Pesquisador de vagas: informe apenas o termo de busca. A consulta usa a Remotive e as páginas Greenhouse cadastradas, registrando somente anúncios retornados pelas fontes.'
       : analyst ? 'Analista de requisitos: escolha uma vaga salva. A extração usa o modelo escolhido no agente ou Ollama local e confere cada requisito no anúncio.'
         : evaluator ? 'Avaliador: escolha uma vaga já analisada e confirme seu perfil profissional. A comparação usa apenas dados confirmados e não chama modelo.'
           : specialist ? 'Especialista em candidaturas: escolha uma vaga salva. A tarefa cria somente um rascunho; respostas e envio exigem sua revisão e aprovação.' : '';
   };
 
   async function refresh(): Promise<void> {
-    const [agents, tasks, execution, questions, whatsapp, evolution, listener, profile, jobs, applications, schedule, browser, router, credentials, mcp, adminSession, backups, windowsStartup, snapshot, health] = await Promise.all([
+    const [agents, tasks, execution, questions, whatsapp, evolution, listener, profile, jobs, applications, schedule, browser, router, credentials, mcp, adminSession, backups, windowsStartup, snapshot, health, greenhouseBoards] = await Promise.all([
       api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'), api<ExecutionStatus>('/api/hub/execution'),
       api<Question[]>('/api/hub/questions'),
       api<WhatsAppStatus>('/api/hub/whatsapp'),
@@ -165,7 +169,16 @@ export function mountHubPanel(): void {
       api<BackupStatus>('/api/hub/backups'),
       api<WindowsStartupStatus>('/api/hub/windows/startup'),
       api<{ agents: Session[] }>('/api/snapshot'), api<{ sources: Source[] }>('/api/health'),
+      api<GreenhouseBoard[]>('/api/hub/jobs/greenhouse/boards'),
     ]);
+    const boardList = panel.querySelector('#hub-greenhouse-boards')!; boardList.replaceChildren();
+    for (const board of greenhouseBoards) {
+      const item = document.createElement('li');
+      item.textContent = `${board.company} · ${board.token}${board.lastError ? ` · erro: ${board.lastError}` : board.lastSearchedAt ? ` · consultada em ${new Date(board.lastSearchedAt).toLocaleString('pt-BR')}` : ' · ainda não consultada'} `;
+      const remove = document.createElement('button'); remove.textContent = 'Remover';
+      remove.onclick = () => void api(`/api/hub/jobs/greenhouse/boards/${encodeURIComponent(board.token)}`, undefined, 'DELETE').then(refresh).catch(showError);
+      item.append(remove); boardList.append(item);
+    }
     if (!executionForm.contains(document.activeElement)) (executionForm.elements.namedItem('maxConcurrent') as HTMLSelectElement).value = String(execution.maxConcurrent);
     (panel.querySelector('#hub-execution-status') as HTMLElement).textContent = `${execution.active} de ${execution.maxConcurrent} execução(ões) em andamento`;
     (panel.querySelector('#hub-windows-startup-status') as HTMLElement).textContent = windowsStartup.supported
@@ -488,7 +501,7 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
-    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || panel.querySelector('#hub-tasks')?.contains(document.activeElement) || executionForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || listenerForm.contains(document.activeElement) || webhookForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || panel.querySelector('#hub-models')?.contains(document.activeElement) || credentialForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || panel.querySelector('#hub-tasks')?.contains(document.activeElement) || executionForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || listenerForm.contains(document.activeElement) || webhookForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || greenhouseForm.contains(document.activeElement) || greenhouseSearch.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || panel.querySelector('#hub-models')?.contains(document.activeElement) || credentialForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
@@ -597,6 +610,11 @@ export function mountHubPanel(): void {
   jobForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(jobForm); message.textContent = 'Consultando vagas...';
     void api<{ added: number }>('/api/hub/jobs/search', { query: data.get('query') })
       .then((result) => { message.textContent = `${result.added} vaga(s) nova(s) registrada(s).`; return refresh(); }).catch(showError); };
+  greenhouseForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(greenhouseForm);
+    void api('/api/hub/jobs/greenhouse/boards', { url: data.get('url') }).then(() => { greenhouseForm.reset(); message.textContent = 'Página de carreira cadastrada.'; return refresh(); }).catch(showError); };
+  greenhouseSearch.onsubmit = (event) => { event.preventDefault(); const data = new FormData(greenhouseSearch); message.textContent = 'Consultando páginas de carreira...';
+    void api<{ added: number; errors: { token: string; error: string }[] }>('/api/hub/jobs/greenhouse/search', { query: data.get('query') })
+      .then((result) => { message.textContent = `${result.added} vaga(s) nova(s) registrada(s).${result.errors.length ? ` ${result.errors.length} página(s) com erro.` : ''}`; return refresh(); }).catch(showError); };
   scheduleForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(scheduleForm);
     void api('/api/hub/jobs/schedule', { query: data.get('query'), intervalHours: Number(data.get('interval')), enabled: data.has('enabled') }, 'PUT')
       .then(() => { message.textContent = 'Agenda salva.'; return refresh(); }).catch(showError); };

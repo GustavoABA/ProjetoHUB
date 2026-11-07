@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { HubStore } from './store';
 import { handleHubRoute } from './http';
+import { GreenhouseBoardStore } from './greenhouse';
 import { JobStore, searchRemotive } from './jobs';
 import { BrowserManager } from './browser';
 import { ApplicationStore } from './applications';
@@ -341,6 +342,37 @@ it('searches a public source and lists only traceable vacancies', async () => {
     expect((await response.json()).added).toBe(1);
     const listing = await (await fetch(base + '/api/hub/jobs')).json();
     expect(listing[0]).toMatchObject({ source: 'Remotive', originalUrl: 'https://remotive.com/remote-jobs/operations/assistant-51' });
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+it('registers and searches an official Greenhouse board through the local HUD API', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
+  const agents = new HubStore(join(dir, 'state.json'));
+  const jobs = new JobStore(join(dir, 'jobs.json'));
+  const boards = new GreenhouseBoardStore(join(dir, 'greenhouse-boards.json'));
+  const source = async (url: URL | RequestInfo) => new Response(JSON.stringify(String(url).endsWith('/jobs?content=true')
+    ? { jobs: [{ id: 123, internal_job_id: 12, title: 'Assistente', location: { name: 'Recife' },
+      content: '<p>Atendimento</p>', absolute_url: 'https://job-boards.greenhouse.io/empresa/jobs/123' }] }
+    : { name: 'Empresa' }), { status: 200 });
+  const server = http.createServer((req, res) => {
+    const args: Parameters<typeof handleHubRoute> = [req, res, new URL(req.url!, 'http://localhost'), agents, jobs, source as typeof fetch];
+    args[21] = boards;
+    handleHubRoute(...args);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const base = `http://127.0.0.1:${address.port}`;
+    const post = (path: string, body: unknown) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await post('/api/hub/jobs/greenhouse/boards', { url: 'https://example.com/empresa' })).status).toBe(400);
+    expect((await post('/api/hub/jobs/greenhouse/boards', { url: 'https://job-boards.greenhouse.io/empresa' })).status).toBe(201);
+    expect(await (await fetch(base + '/api/hub/jobs/greenhouse/boards')).json()).toMatchObject([{ company: 'Empresa', token: 'empresa' }]);
+    const search = await post('/api/hub/jobs/greenhouse/search', { query: 'Assistente' });
+    expect(search.status).toBe(200);
+    expect((await search.json()).added).toBe(1);
+    expect((await (await fetch(base + '/api/hub/jobs')).json())[0]).toMatchObject({ source: 'Greenhouse', sourceId: 'empresa:123' });
+    expect((await fetch(base + '/api/hub/jobs/greenhouse/boards/empresa', { method: 'DELETE' })).status).toBe(200);
+    expect(new GreenhouseBoardStore(join(dir, 'greenhouse-boards.json')).list()).toEqual([]);
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 

@@ -4,6 +4,7 @@ import type { ProfileStore } from './profile';
 import type { ModelRouter } from './router';
 import type { ApplicationStore } from './applications';
 import { analyzeJob, scoreJob } from './analysis';
+import { searchGreenhouseBoards, type GreenhouseBoardStore } from './greenhouse';
 
 export interface JobActionDeps {
   hub: HubStore;
@@ -12,6 +13,7 @@ export interface JobActionDeps {
   router: Pick<ModelRouter, 'complete'>;
   applications?: ApplicationStore;
   fetcher?: typeof fetch;
+  greenhouseBoards?: GreenhouseBoardStore;
 }
 
 /** Assign each saved, unanalysed listing once. Existing and cancelled tasks remain authoritative. */
@@ -49,9 +51,22 @@ export function reconcileCompatibilityTasks(hub: HubStore, jobs: JobStore, profi
 /** Built-in job roles perform source-backed actions; all other agents use their configured model. */
 export async function runJobAction(task: HubTask, agent: HubAgent, deps: JobActionDeps): Promise<string | undefined> {
   if (agent.systemKey === 'job-search/researcher') {
-    const found = await searchRemotive(deps.jobs, task.instruction, deps.fetcher ?? fetch);
+    const results: string[] = [];
+    const errors: string[] = [];
+    try {
+      const found = await searchRemotive(deps.jobs, task.instruction, deps.fetcher ?? fetch);
+      results.push(`Remotive: ${found.added} vaga(s) nova(s)`);
+    } catch (error) { errors.push(`Remotive: ${error instanceof Error ? error.message : 'falha de consulta'}`); }
+    if (deps.greenhouseBoards?.list().length) {
+      try {
+        const found = await searchGreenhouseBoards(deps.greenhouseBoards, deps.jobs, task.instruction, deps.fetcher ?? fetch);
+        results.push(`Greenhouse: ${found.added} vaga(s) nova(s)`);
+        errors.push(...found.errors.map(({ token, error }) => `Greenhouse ${token}: ${error}`));
+      } catch (error) { errors.push(`Greenhouse: ${error instanceof Error ? error.message : 'falha de consulta'}`); }
+    }
+    if (!results.length) throw new Error(errors.join('; '));
     reconcileAnalysisTasks(deps.hub, deps.jobs);
-    return `Pesquisa Remotive: ${found.added} vaga(s) nova(s) entre ${found.jobs.length} anúncio(s) válidos. Consulte Vagas encontradas para ver a origem e o link de cada uma.`;
+    return `Pesquisa: ${results.join('; ')}. Consulte Vagas encontradas para ver a origem e o link de cada uma.${errors.length ? ` Falhas parciais: ${errors.join('; ')}.` : ''}`;
   }
   if (agent.systemKey === 'job-search/requirements') {
     const job = await analyzeJob(deps.jobs, deps.profile, deps.router, task.instruction,
