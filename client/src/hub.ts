@@ -40,6 +40,9 @@ const css = `
 #projecthub-panel form{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0 22px;align-items:end}#projecthub-panel label{display:grid;gap:4px;min-width:170px;flex:1}
 #projecthub-panel input,#projecthub-panel select,#projecthub-panel textarea{background:#282d40;color:white;border:1px solid #717899;padding:9px;font:inherit}
 #projecthub-panel button{background:#6655ad;color:white;border:1px solid #a697e2;padding:9px 12px;cursor:pointer;font:inherit}
+#hub-job-preferences{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));align-items:start!important}
+#hub-job-preferences label{min-width:0}#hub-job-preferences select[multiple]{min-height:100px}
+#hub-job-preferences textarea{min-height:82px}#hub-job-preferences button{align-self:end}
 #projecthub-panel ul{padding-left:22px}#projecthub-panel li{margin:7px 0}#projecthub-panel small{color:#b9c2d9}
 #projecthub-panel .hub-head{display:flex;justify-content:space-between;align-items:center}#projecthub-message{min-height:1.4em;color:#ffe4a0}
 `;
