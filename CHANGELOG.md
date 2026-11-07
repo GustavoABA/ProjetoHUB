@@ -29,6 +29,7 @@ do meio (0.**3**.0).
 - Retentativas limitadas e persistentes para falhas temporárias do Ollama, sem bloquear outras tarefas; retomada manual de tarefas com erro.
 - URL e chave da Evolution API configuráveis pelo painel, com proteção da chave pela conta do Windows.
 - Criação guiada da instância exclusiva de emprego após verificar duplicatas, com QR de pareamento temporário no painel.
+- Configuração do webhook da instância de emprego pelo painel, com token de recebimento gerado internamente.
 
 ### Corrigido no ProjetoHUB
 

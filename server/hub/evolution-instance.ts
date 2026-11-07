@@ -1,3 +1,7 @@
+import { randomBytes } from 'node:crypto';
+import { isIP } from 'node:net';
+import type { WhatsAppStore } from './whatsapp';
+
 const INSTANCE = 'procura-de-emprego';
 type Options = { baseUrl: string; apiKey: string; fetcher?: typeof fetch };
 type Result = { instance: typeof INSTANCE; created?: boolean; status?: string; qrCode?: string; pairingCode?: string };
@@ -54,4 +58,32 @@ export async function connectJobInstance({ baseUrl, apiKey, fetcher = fetch }: O
   const result = await json(response);
   if (object(result)?.error === true) throw new Error('Evolution recusou a conexão da instância');
   return { instance: INSTANCE, ...safeResult(result) };
+}
+
+function webhookUrl(value: string): string {
+  if (typeof value !== 'string' || value.length > 500) throw new Error('URL do webhook inválida');
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error('URL do webhook inválida'); }
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const parts = host.split('.').map(Number);
+  const local = host === 'localhost' || host === 'host.docker.internal' || host === '::1' ||
+    (isIP(host) === 4 && (parts[0] === 127 || parts[0] === 10 || (parts[0] === 192 && parts[1] === 168) ||
+      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)));
+  if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) || url.username || url.password || url.search || url.hash ||
+    url.pathname !== '/webhook/evolution') throw new Error('Use HTTPS ou HTTP local com caminho /webhook/evolution, sem credenciais ou parâmetros');
+  return url.toString();
+}
+
+/** Configure only this instance. Persist the new inbound secret after Evolution confirms the update. */
+export async function configureJobWebhook({ baseUrl, apiKey, fetcher = fetch }: Options, whatsapp: WhatsAppStore, destination: string): Promise<{ instance: typeof INSTANCE; configured: true }> {
+  assertKey(apiKey);
+  const url = webhookUrl(destination);
+  const token = randomBytes(32).toString('base64url');
+  const response = await fetcher(`${baseUrl}/event/webhook/set/${INSTANCE}`, { method: 'POST',
+    headers: { apikey: apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ webhook: { enabled: true, url, events: ['MESSAGES_UPSERT'], headers: { 'X-ProjectHUB-Token': token }, byEvents: false, base64: false } }),
+    signal: AbortSignal.timeout(20_000) });
+  if (!response.ok) throw new Error(`Configuração do webhook Evolution HTTP ${response.status}`);
+  whatsapp.installWebhookToken(token);
+  return { instance: INSTANCE, configured: true };
 }

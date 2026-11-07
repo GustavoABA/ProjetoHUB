@@ -15,7 +15,7 @@ import type { ConnectionPublisher } from './connection-publisher';
 import type { BackupManager } from './backup';
 import type { WindowsStartupManager } from './windows-startup';
 import type { EvolutionSettings } from './evolution-settings';
-import { connectJobInstance, ensureJobInstance } from './evolution-instance';
+import { configureJobWebhook, connectJobInstance, ensureJobInstance } from './evolution-instance';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Corpo JSON inválido');
@@ -134,6 +134,20 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     if (!whatsapp) sendJson(res, 503, { error: 'WhatsApp indisponível' });
     else if (req.method === 'POST') { req.resume(); sendJson(res, 200, { token: whatsapp.rotateWebhookToken() }); }
     else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  if (path === '/api/hub/whatsapp/webhook') {
+    if (!whatsapp || !evolution) sendJson(res, 503, { error: 'Configuração WhatsApp indisponível' });
+    else if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
+    else if (!whatsapp.status().mainNumber || !whatsapp.status().secondaryNumber) {
+      req.resume(); sendJson(res, 409, { error: 'Configure primeiro os números principal e secundário' });
+    } else if (!Number.isInteger(Number(process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT)) || Number(process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT) < 1 || Number(process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT) > 65_535) {
+      req.resume(); sendJson(res, 409, { error: 'Ative a porta do listener do webhook antes de configurar a Evolution' });
+    } else void readJson(req).then(async (raw) => {
+      const destination = string(record(raw).url, 'URL do webhook');
+      const apiKey = await evolution.apiKey();
+      return configureJobWebhook({ baseUrl: evolution.status().baseUrl, apiKey, fetcher }, whatsapp, destination);
+    }).then((result) => sendJson(res, 200, result)).catch((error) => fail(res, error));
     return true;
   }
   if (path === '/api/hub/whatsapp/diagnostics') {

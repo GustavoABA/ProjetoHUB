@@ -125,6 +125,40 @@ it('requires configured numbers and preserves an existing Evolution instance', a
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 
+it('configures the dedicated Evolution webhook only after listener and numbers are ready', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
+  const whatsapp = new WhatsAppStore(join(dir, 'whatsapp.json'));
+  const evolution = new EvolutionSettings(join(dir, 'evolution-settings.json'), { EVOLUTION_API_KEY: 'test-key' });
+  const requests: string[] = [];
+  const fetcher = (async (url: string | URL | Request) => {
+    requests.push(String(url));
+    return new Response('{}', { status: 201 });
+  }) as typeof fetch;
+  const hub = new HubStore(join(dir, 'state.json'));
+  const server = http.createServer((req, res) => handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), hub,
+    undefined, fetcher, undefined, undefined, undefined, undefined, whatsapp,
+    undefined, undefined, undefined, undefined, undefined, undefined, evolution));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const previousPort = process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT;
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const url = `http://127.0.0.1:${address.port}/api/hub/whatsapp/webhook`;
+    const body = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'http://host.docker.internal:4770/webhook/evolution' }) };
+    expect((await fetch(url, body)).status).toBe(409);
+    whatsapp.configure({ mainNumber: '5511999999999', secondaryNumber: '5511888888888' });
+    expect((await fetch(url, body)).status).toBe(409);
+    process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT = '4770';
+    const configured = await fetch(url, body);
+    expect(configured.status).toBe(200);
+    expect(await configured.json()).toEqual({ instance: 'procura-de-emprego', configured: true });
+    expect(requests).toEqual(['http://127.0.0.1:8080/event/webhook/set/procura-de-emprego']);
+  } finally {
+    if (previousPort === undefined) delete process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT;
+    else process.env.PROJECTHUB_WHATSAPP_WEBHOOK_PORT = previousPort;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 it('refuses management access from a non-loopback socket', () => {
   const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
   const req = new http.IncomingMessage(new Socket());

@@ -37,7 +37,11 @@ export class WhatsAppStore {
   }
   rotateWebhookToken(): string {
     const token = randomBytes(32).toString('base64url');
-    this.state.webhookTokenHash = hash(token).toString('hex'); this.save(); return token;
+    this.installWebhookToken(token); return token;
+  }
+  installWebhookToken(token: string): void {
+    if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error('Token de webhook inválido');
+    this.state.webhookTokenHash = hash(token).toString('hex'); this.save();
   }
   authenticateWebhook(token: string): boolean {
     const expected = this.state.webhookTokenHash;

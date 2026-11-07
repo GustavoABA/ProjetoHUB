@@ -1,5 +1,9 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
-import { connectJobInstance, ensureJobInstance } from './evolution-instance';
+import { configureJobWebhook, connectJobInstance, ensureJobInstance } from './evolution-instance';
+import { WhatsAppStore } from './whatsapp';
 
 const options = { baseUrl: 'http://127.0.0.1:8080', apiKey: 'test-key' };
 
@@ -32,4 +36,41 @@ it('returns a validated QR only for the dedicated instance', async () => {
   expect(await connectJobInstance({ ...options, fetcher })).toMatchObject({ qrCode: `data:image/png;base64,${png}`, pairingCode: '12345678' });
   expect(fetcher.mock.calls[0][0]).toBe('http://127.0.0.1:8080/instance/connect/procura-de-emprego');
   expect(fetcher.mock.calls[0][1]?.method).toBe('GET');
+});
+
+it('configures only the dedicated instance webhook with an authenticated header', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-webhook-'));
+  try {
+    const whatsapp = new WhatsAppStore(join(dir, 'whatsapp.json'));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 201 }));
+    const result = await configureJobWebhook({ ...options, fetcher }, whatsapp, 'http://host.docker.internal:4770/webhook/evolution');
+    expect(result).toEqual({ instance: 'procura-de-emprego', configured: true });
+    expect(fetcher.mock.calls[0][0]).toBe('http://127.0.0.1:8080/event/webhook/set/procura-de-emprego');
+    const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+    expect(body.webhook).toMatchObject({ enabled: true, url: 'http://host.docker.internal:4770/webhook/evolution', events: ['MESSAGES_UPSERT'], byEvents: false, base64: false });
+    expect(whatsapp.authenticateWebhook(body.webhook.headers['X-ProjectHUB-Token'])).toBe(true);
+    expect(JSON.stringify(result)).not.toContain(body.webhook.headers['X-ProjectHUB-Token']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+it('does not replace the working webhook token if Evolution rejects the update', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-webhook-'));
+  try {
+    const whatsapp = new WhatsAppStore(join(dir, 'whatsapp.json'));
+    const oldToken = whatsapp.rotateWebhookToken();
+    await expect(configureJobWebhook({ ...options, fetcher: async () => new Response('{}', { status: 401 }) }, whatsapp,
+      'https://example.com/webhook/evolution')).rejects.toThrow('HTTP 401');
+    expect(whatsapp.authenticateWebhook(oldToken)).toBe(true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+it('rejects webhook URLs that cannot safely receive events', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-webhook-'));
+  try {
+    const whatsapp = new WhatsAppStore(join(dir, 'whatsapp.json'));
+    const fetcher = vi.fn<typeof fetch>();
+    await expect(configureJobWebhook({ ...options, fetcher }, whatsapp, 'http://example.com/webhook/evolution')).rejects.toThrow();
+    await expect(configureJobWebhook({ ...options, fetcher }, whatsapp, 'https://example.com/other')).rejects.toThrow();
+    expect(fetcher).not.toHaveBeenCalled();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

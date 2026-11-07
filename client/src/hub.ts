@@ -50,8 +50,9 @@ export function mountHubPanel(): void {
     <form id="hub-evolution-form"><label>URL da Evolution API<input name="baseUrl" type="url" required placeholder="http://127.0.0.1:8080"></label><label>Chave da Evolution API<input name="apiKey" type="password" autocomplete="new-password" placeholder="Deixe vazio para manter a chave atual"></label><button>Salvar conexão</button></form><button type="button" data-evolution-clear>Remover chave salva neste Windows</button><p id="hub-evolution-status"></p>
     <form id="hub-whatsapp-form"><label>Número principal (destino)<input name="mainNumber" inputmode="numeric" pattern="[0-9]{10,15}" required></label><label>Número secundário (instância)<input name="secondaryNumber" inputmode="numeric" pattern="[0-9]{10,15}" required></label><button>Salvar números</button></form>
     <div><button type="button" data-instance-create>Criar somente procura-de-emprego</button> <button type="button" data-instance-connect>Mostrar QR para parear</button></div><p id="hub-instance-status"></p><img id="hub-instance-qr" alt="QR de pareamento da instância procura-de-emprego" hidden style="max-width:260px;image-rendering:pixelated">
-    <p id="hub-whatsapp-status"></p><button type="button" data-whatsapp-diagnostics>Verificar Evolution API</button> <button type="button" data-whatsapp-token>Gerar novo token do webhook</button><p id="hub-whatsapp-diagnostics"></p><p id="hub-whatsapp-token"></p>
-    <p>Depois de salvar os números e a chave, crie ou consulte somente <strong>procura-de-emprego</strong> pelo botão acima. Leia o QR com o número secundário. Também é possível usar o <a id="hub-evolution-manager" href="http://127.0.0.1:8080/manager" target="_blank" rel="noopener noreferrer" style="color:#c9bdff">Evolution Manager</a>. No webhook dessa instância, use o evento MESSAGES_UPSERT e o cabeçalho X-ProjectHUB-Token com o token gerado acima. O listener precisa estar acessível à Evolution API.</p>
+    <p id="hub-whatsapp-status"></p><button type="button" data-whatsapp-diagnostics>Verificar Evolution API</button> <button type="button" data-whatsapp-token>Gerar token para configuração manual (invalida o anterior)</button><p id="hub-whatsapp-diagnostics"></p><p id="hub-whatsapp-token"></p>
+    <form id="hub-webhook-form"><label>URL do webhook acessível à Evolution<input name="url" type="url" required placeholder="http://host.docker.internal:4770/webhook/evolution"></label><button>Configurar webhook desta instância</button></form><p id="hub-webhook-result"></p>
+    <p>Depois de salvar os números e a chave, crie ou consulte somente <strong>procura-de-emprego</strong> pelo botão acima. Leia o QR com o número secundário. Também é possível usar o <a id="hub-evolution-manager" href="http://127.0.0.1:8080/manager" target="_blank" rel="noopener noreferrer" style="color:#c9bdff">Evolution Manager</a>. O webhook automático configura MESSAGES_UPSERT e uma chave de recebimento somente nesta instância. Ative a porta do listener antes de usar este botão. O listener precisa estar acessível à Evolution API.</p>
     <h3>Controle remoto MCP</h3><p id="hub-mcp-status"></p><p id="hub-github-status"></p><p id="hub-admin-session"></p><label>Ao completar 12 horas<select id="hub-admin-policy"><option value="notify">Avisar e manter túnel</option><option value="renew">Renovar automaticamente</option><option value="close">Fechar túnel</option></select></label><button type="button" data-session-policy>Salvar política</button> <button type="button" data-session-renew>Renovar sessão agora</button><p><button type="button" data-mcp-key>Gerar ou revogar chave administrativa</button> <button type="button" data-mcp-copy>Copiar configuração de conexão</button></p><p id="hub-mcp-key"></p><small>A chave aparece uma vez. Gerar novamente revoga a anterior. O endereço local só funciona neste computador; acesso externo requer túnel e cliente MCP compatível com autenticação Bearer.</small>
     <h3>Backups locais</h3><p>O escritório cria uma cópia do estado a cada 24 horas. Restaurar uma cópia substitui os dados do ProjetoHUB na próxima abertura do serviço; uma cópia de segurança do estado atual é criada antes.</p><button type="button" data-backup-create>Criar backup agora</button><p id="hub-backup-status"></p><ul id="hub-backups"></ul><small>O perfil do navegador, as chaves externas e a chave administrativa MCP não entram no backup. Guarde as cópias locais em um disco protegido.</small>
     <h3>Inicialização do Windows</h3><p id="hub-windows-startup-status"></p><button type="button" data-windows-startup>Alterar inicialização automática</button>
@@ -77,6 +78,7 @@ export function mountHubPanel(): void {
   const questionForm = panel.querySelector('#hub-question-form') as HTMLFormElement;
   const whatsappForm = panel.querySelector('#hub-whatsapp-form') as HTMLFormElement;
   const evolutionForm = panel.querySelector('#hub-evolution-form') as HTMLFormElement;
+  const webhookForm = panel.querySelector('#hub-webhook-form') as HTMLFormElement;
   const profileForm = panel.querySelector('#hub-profile-form') as HTMLFormElement;
   const applicationForm = panel.querySelector('#hub-application-form') as HTMLFormElement;
   const jobForm = panel.querySelector('#hub-job-form') as HTMLFormElement;
@@ -152,6 +154,9 @@ export function mountHubPanel(): void {
     (panel.querySelector('[data-evolution-clear]') as HTMLButtonElement).disabled = evolution.apiKeySource !== 'windows';
     (panel.querySelector('#hub-whatsapp-status') as HTMLElement).textContent = `${whatsapp.instance} · ${whatsapp.mainNumber && whatsapp.secondaryNumber ? 'números configurados' : 'números pendentes'} · ${whatsapp.apiKeyConfigured ? 'chave Evolution detectada' : 'chave Evolution não configurada'} · ${whatsapp.webhookTokenConfigured ? 'token do webhook gerado' : 'token do webhook pendente'} · ${whatsapp.webhookPort ? `porta do webhook ${whatsapp.webhookPort}` : 'listener do webhook desligado'}.`;
     const canPair = Boolean(whatsapp.mainNumber && whatsapp.secondaryNumber && evolution.apiKeyConfigured);
+    (webhookForm.querySelector('button') as HTMLButtonElement).disabled = !canPair || !whatsapp.webhookPort;
+    const webhookUrl = webhookForm.elements.namedItem('url') as HTMLInputElement;
+    if (!webhookUrl.value && whatsapp.webhookPort) webhookUrl.value = `http://host.docker.internal:${whatsapp.webhookPort}/webhook/evolution`;
     (panel.querySelector('[data-instance-create]') as HTMLButtonElement).disabled = !canPair;
     (panel.querySelector('[data-instance-connect]') as HTMLButtonElement).disabled = !canPair;
     if (!profileForm.contains(document.activeElement)) {
@@ -346,7 +351,7 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
-    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || webhookForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
@@ -392,6 +397,12 @@ export function mountHubPanel(): void {
       .then(() => { (evolutionForm.elements.namedItem('apiKey') as HTMLInputElement).value = ''; message.textContent = 'Conexão Evolution salva neste computador.'; return refresh(); }).catch(showError);
   };
   (panel.querySelector('[data-evolution-clear]') as HTMLButtonElement).onclick = () => void api('/api/hub/whatsapp/settings/key', {}, 'DELETE').then(refresh).catch(showError);
+  webhookForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(webhookForm);
+    void api('/api/hub/whatsapp/webhook', { url: data.get('url') }).then(() => {
+      (panel.querySelector('#hub-webhook-result') as HTMLElement).textContent = 'Configuração aceita pela Evolution para procura-de-emprego. O recebimento de mensagens ainda precisa ser testado.';
+      return refresh();
+    }).catch(showError);
+  };
   const showInstance = (result: EvolutionInstanceResult) => {
     (panel.querySelector('#hub-instance-status') as HTMLElement).textContent = `${result.created ? 'Instância criada' : 'Instância existente ou conexão solicitada'}: ${result.instance}${result.status ? ` · estado ${result.status}` : ''}${result.pairingCode ? ` · código ${result.pairingCode}` : ''}. ${result.qrCode ? 'Leia o QR com o número secundário.' : 'Se não houver QR, confira o estado e tente solicitar a conexão.'}`;
     const qr = panel.querySelector('#hub-instance-qr') as HTMLImageElement;
