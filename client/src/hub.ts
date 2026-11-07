@@ -17,7 +17,7 @@ type McpStatus = { configured: boolean; port: number; ngrok: { installed: boolea
 type AdminSession = { installationId: string; startedAt: string; expiresAt: string; policy: 'renew' | 'notify' | 'close'; remainingSeconds: number; expired: boolean };
 type BackupStatus = { backups: { id: string; createdAt: string; size: number }[]; pendingRestore?: string };
 type WindowsStartupStatus = { supported: boolean; enabled: boolean; shortcut?: string };
-type Question = { id: string; taskId: string; applicationId?: string; text: string; state: 'pending' | 'answered' | 'cancelled'; answer?: string; createdAt: string; deadline?: string };
+type Question = { id: string; taskId: string; applicationId?: string; fieldName?: string; text: string; state: 'pending' | 'answered' | 'cancelled'; answer?: string; appliedAt?: string; applicationSyncError?: string; createdAt: string; deadline?: string };
 type Application = { id: string; jobId: string; title: string; company: string; originalUrl: string; status: 'draft' | 'awaiting_approval' | 'approved' | 'submitting' | 'submission_uncertain' | 'submitted'; answers: Record<string, string>; approvedAt?: string;
   submission?: { pageUrl: string; confirmationText?: string; confirmedAt?: string; error?: string } };
 const statusLabel: Record<string, string> = { unassigned: 'aguardando execução', queued: 'na fila', dispatching: 'em processamento', sent: 'instrução aceita pelo Codex', waiting_input: 'aguardando resposta', paused: 'pausada', done: 'concluída', result_ready: 'resposta local pronta para revisão', failed: 'erro na execução', interrupted: 'execução interrompida; requer revisão', cancelled: 'cancelada' };
@@ -49,8 +49,8 @@ export function mountHubPanel(): void {
     <h3>Criar agente</h3><form id="hub-agent-form"><label>Nome<input name="name" maxlength="100" required></label><label>Objetivo<input name="objective" maxlength="2000" required></label><label>Sessão Codex existente (opcional)<select name="session"><option value="">Sem vínculo</option></select></label><label>Modelo para agente sem Codex<select name="modelId"><option value="">Ollama local automático</option></select></label><label>Subagente de (opcional)<select name="parent"><option value="">Agente principal</option></select></label><button>Criar agente</button></form>
     <h3>Nova tarefa</h3><form id="hub-task-form"><label>Agente<select name="agent" required></select></label><label>Instrução ou termo de busca<input name="instruction" maxlength="10000" required></label><label id="hub-task-job-label" hidden>Vaga para analisar<select name="jobId"></select></label><label>Prioridade<select name="priority"><option value="1">1 · Baixa</option><option value="2">2</option><option value="3" selected>3 · Normal</option><option value="4">4</option><option value="5">5 · Alta</option></select></label><button>Criar tarefa</button></form><p id="hub-task-hint"></p>
     <form id="hub-execution-form"><label>Execuções simultâneas<select name="maxConcurrent"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label><button>Salvar limite</button></form><p id="hub-execution-status"></p>
-    <h3>Perguntas pendentes</h3><form id="hub-question-form"><label>Tarefa<select name="task" required></select></label><label>Pergunta<input name="text" maxlength="2000" required></label><label>Candidatura (opcional)<select name="applicationId"><option value="">Sem candidatura</option></select></label><button>Registrar pergunta</button></form><ul id="hub-questions"></ul>
-    <h3>WhatsApp · Evolution API</h3><p>A instância lógica é procura-de-emprego. Configure os números com DDI e DDD. Nenhuma mensagem será enviada antes de acionar o envio de uma pergunta.</p>
+    <h3>Perguntas pendentes</h3><p>Para preencher um campo do rascunho com a resposta, escolha a candidatura e informe o nome do campo. A resposta não autoriza o envio; revise o rascunho e aprove novamente.</p><form id="hub-question-form"><label>Tarefa<select name="task" required></select></label><label>Pergunta<input name="text" maxlength="2000" required></label><label>Candidatura (opcional)<select name="applicationId"><option value="">Sem candidatura</option></select></label><label id="hub-question-field-label" hidden>Campo da candidatura<input name="fieldName" maxlength="100" placeholder="Ex.: Disponibilidade"></label><button>Registrar pergunta</button></form><ul id="hub-questions"></ul>
+    <h3>WhatsApp · Evolution API</h3><p>A instância lógica é procura-de-emprego. Configure os números com DDI e DDD. Com a chave, token e recebimento ativos, perguntas pendentes são enviadas automaticamente; confira o destino antes de salvar.</p>
     <form id="hub-evolution-form"><label>URL da Evolution API<input name="baseUrl" type="url" required placeholder="http://127.0.0.1:8080"></label><label>Chave da Evolution API<input name="apiKey" type="password" autocomplete="new-password" placeholder="Deixe vazio para manter a chave atual"></label><button>Salvar conexão</button></form><button type="button" data-evolution-clear>Remover chave salva neste Windows</button><p id="hub-evolution-status"></p>
     <form id="hub-whatsapp-form"><label>Número principal (destino)<input name="mainNumber" inputmode="numeric" pattern="[0-9]{10,15}" required></label><label>Número secundário (instância)<input name="secondaryNumber" inputmode="numeric" pattern="[0-9]{10,15}" required></label><button>Salvar números</button></form>
     <div><button type="button" data-instance-create>Criar somente procura-de-emprego</button> <button type="button" data-instance-connect>Mostrar QR para parear</button></div><p id="hub-instance-status"></p><img id="hub-instance-qr" alt="QR de pareamento da instância procura-de-emprego" hidden style="max-width:260px;image-rendering:pixelated">
@@ -104,6 +104,9 @@ export function mountHubPanel(): void {
   const taskJobSelect = taskForm.elements.namedItem('jobId') as HTMLSelectElement;
   const questionTasks = questionForm.elements.namedItem('task') as HTMLSelectElement;
   const questionApplications = questionForm.elements.namedItem('applicationId') as HTMLSelectElement;
+  const questionFieldLabel = panel.querySelector('#hub-question-field-label') as HTMLLabelElement;
+  const questionField = questionForm.elements.namedItem('fieldName') as HTMLInputElement;
+  const updateQuestionField = () => { questionFieldLabel.hidden = !questionApplications.value; questionField.required = Boolean(questionApplications.value); };
   const applicationJobs = applicationForm.elements.namedItem('job') as HTMLSelectElement;
   let choices: { thread: string; home: string }[] = [];
   let currentMcpKey: string | undefined;
@@ -256,11 +259,13 @@ export function mountHubPanel(): void {
     const selectedTaskAgent = agentsSelect.value;
     const selectedTaskJob = taskJobSelect.value;
     sessions.length = 1; agentModel.length = 1; parents.length = 1; agentsSelect.length = 0; taskJobSelect.length = 0; questionTasks.length = 0; questionApplications.length = 1; choices = [];
+    updateQuestionField();
     confirmedProfileRevision = profile.confirmedAt ? profile.revision : undefined;
     for (const job of jobs) { option(taskJobSelect, job.id, `${job.title} — ${job.company}`); taskJobSelect.options[taskJobSelect.length - 1].dataset.analyzed = String(Boolean(job.analyzedAt)); }
     if (selectedTaskJob && [...taskJobSelect.options].some((item) => item.value === selectedTaskJob)) taskJobSelect.value = selectedTaskJob;
     for (const model of router.models) option(agentModel, model.id, `${model.provider} / ${model.model}${model.available ? '' : ' · indisponível'}`);
-    for (const app of applications) option(questionApplications, app.id, `${app.title} — ${app.company}`);
+    for (const app of applications.filter((item) => ['draft', 'awaiting_approval', 'approved'].includes(item.status)))
+      option(questionApplications, app.id, `${app.title} — ${app.company}`);
     for (const session of snapshot.agents.filter((a) => a.provider === 'codex')) {
       const home = health.sources.find((s) => s.provider === 'codex' && s.label === session.account)?.path;
       if (!home || !session.sessionId) continue;
@@ -339,7 +344,7 @@ export function mountHubPanel(): void {
     }
     const questionList = panel.querySelector('#hub-questions')!; questionList.replaceChildren();
     for (const question of questions.slice().reverse().slice(0, 100)) {
-      const li = document.createElement('li'); li.textContent = `${question.text} · tarefa ${question.taskId.slice(0, 8)} · ${question.state === 'pending' ? 'aguardando resposta' : question.state === 'cancelled' ? 'cancelada' : 'respondida'} `;
+      const li = document.createElement('li'); li.textContent = `${question.text} · tarefa ${question.taskId.slice(0, 8)} · ${question.state === 'pending' ? 'aguardando resposta' : question.state === 'cancelled' ? 'cancelada' : 'respondida'}${question.fieldName ? ` · campo ${question.fieldName}: ${question.appliedAt ? 'registrado no rascunho' : question.applicationSyncError ? `erro: ${question.applicationSyncError}` : 'aguardando registro'}` : ''} `;
       if (question.state === 'pending') {
         const form = document.createElement('form');
         const input = document.createElement('input'); input.required = true; input.maxLength = 5000; input.placeholder = 'Resposta confirmada pelo usuário'; input.setAttribute('aria-label', 'Resposta');
@@ -465,8 +470,9 @@ export function mountHubPanel(): void {
     void api('/api/hub/execution', { maxConcurrent: Number(data.get('maxConcurrent')) }, 'PUT')
       .then(() => { message.textContent = 'Limite de execução salvo.'; return refresh(); }).catch(showError); };
   questionForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(questionForm);
-    void api('/api/hub/questions', { taskId: data.get('task'), text: data.get('text'), ...(data.get('applicationId') ? { applicationId: data.get('applicationId') } : {}) })
-      .then(() => { questionForm.reset(); message.textContent = 'Pergunta pendente registrada.'; return refresh(); }).catch(showError); };
+    void api('/api/hub/questions', { taskId: data.get('task'), text: data.get('text'), ...(data.get('applicationId') ? { applicationId: data.get('applicationId'), fieldName: data.get('fieldName') } : {}) })
+      .then(() => { questionForm.reset(); updateQuestionField(); message.textContent = 'Pergunta pendente registrada.'; return refresh(); }).catch(showError); };
+  questionApplications.onchange = updateQuestionField;
   whatsappForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(whatsappForm);
     void api('/api/hub/whatsapp', { mainNumber: data.get('mainNumber'), secondaryNumber: data.get('secondaryNumber') }, 'PUT')
       .then(() => { message.textContent = 'Números do WhatsApp salvos neste computador.'; return refresh(); }).catch(showError); };

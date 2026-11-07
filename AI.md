@@ -288,3 +288,13 @@ Quando uma resposta pendente chega pelo webhook ou é registrada pelo painel, o 
 
 **Verificação desta atualização:** 23 testes direcionados de despacho e comunicação passaram; `npm test` passou com 2.007 testes aprovados e 18 ignorados em 188 arquivos. Checagem de tipos, build e `git diff --check` passaram. Nenhuma sessão Codex nem conversa WhatsApp real foi acionada.
 
+## Atualização: respostas vinculadas a campos de candidatura
+
+O formulário de perguntas do HUD permite escolher uma candidatura editável e informar o nome exato do campo que a resposta preencherá. O serviço valida o campo, recusa nomes de senha ou token e grava a resposta recebida no rascunho, preservando outras respostas. Se a candidatura já estava aprovada, editar a resposta a devolve para `draft` e elimina a aprovação anterior; ainda é necessária nova revisão e autorização antes de enviar. Perguntas sem campo vinculado continuam servindo à retomada geral da tarefa. Uma candidatura com tentativa de envio iniciada não aceita novas perguntas vinculadas.
+
+A aplicação da resposta usa reconciliação entre os stores de perguntas e candidaturas. Ela roda na inicialização, antes de despachar tarefas e a cada cinco segundos. Se o processo parar depois de salvar o campo mas antes de marcar a pergunta como aplicada, a próxima execução reconhece o mesmo valor e não cria um segundo evento de alteração. Falhas de sincronização ficam no registro da pergunta e aparecem no HUD, sem interromper outras tarefas. A resposta ainda é tratada como informação fornecida pelo usuário; não é validação independente de experiência ou formação.
+
+**Limites:** o vínculo do campo precisa ser criado no HUD ou API antes de enviar a pergunta. O sistema ainda não descobre automaticamente perguntas de portais nem associa arquivos de currículo. O webhook real da Evolution e uma candidatura em portal externo não foram usados nos testes desta atualização.
+
+**Verificação desta atualização:** 23 testes direcionados de respostas e API passaram. `npm test` passou com 2.012 testes aprovados e 18 ignorados em 189 arquivos; checagem de tipos, build e `git diff --check` passaram. Os testes cobrem resposta simulada por WhatsApp, revogação da aprovação após editar o rascunho, recusa de campo sensível, bloqueio após início de envio e recuperação após interrupção entre gravações.
+

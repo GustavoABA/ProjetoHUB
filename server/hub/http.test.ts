@@ -382,6 +382,33 @@ it('prepares one application from a sourced vacancy and requires explicit approv
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 
+it('links an application field to a question and applies the answered value through the local API', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-question-field-')); dirs.push(dir);
+  const hub = new HubStore(join(dir, 'state.json'));
+  const agent = hub.createAgent({ name: 'Candidaturas', objective: 'Preparar' });
+  const task = hub.createTask({ agentId: agent.id, instruction: 'Preparar' });
+  const applications = new ApplicationStore(join(dir, 'applications.json'));
+  const app = applications.create({ jobId: 'job-1', source: 'Remotive', sourceId: '81',
+    originalUrl: 'https://remotive.com/remote-jobs/support/assistant-81', title: 'Assistant', company: 'Acme' });
+  const server = http.createServer((req, res) => handleHubRoute(req, res, new URL(req.url!, 'http://localhost'),
+    hub, undefined, fetch, undefined, undefined, applications));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const base = `http://127.0.0.1:${address.port}`;
+    const post = (path: string, body: unknown) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await post('/api/hub/questions', { taskId: task.id, applicationId: app.id, fieldName: 'senha', text: 'Senha?' })).status).toBe(400);
+    const created = await post('/api/hub/questions', { taskId: task.id, applicationId: app.id,
+      fieldName: 'Disponibilidade', text: 'Quando pode começar?' });
+    expect(created.status).toBe(201);
+    const question = await created.json();
+    const answered = await post(`/api/hub/questions/${question.id}/answer`, { answer: 'Imediata' });
+    expect(answered.status).toBe(200);
+    expect((await answered.json()).appliedAt).toBeTruthy();
+    expect(applications.get(app.id)?.answers).toEqual({ Disponibilidade: 'Imediata' });
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
 it('analyzes a sourced vacancy and hides a stale score after profile changes', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-')); dirs.push(dir);
   const agents = new HubStore(join(dir, 'state.json')); const jobs = new JobStore(join(dir, 'jobs.json'));

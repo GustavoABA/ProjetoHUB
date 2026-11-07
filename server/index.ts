@@ -64,6 +64,7 @@ import { dispatchWithLocalFallback } from './hub/dispatcher';
 import { JobStore, runScheduledSearch } from './hub/jobs';
 import { reconcileAnalysisTasks, reconcileCompatibilityTasks, runJobAction } from './hub/job-actions';
 import { reconcileQuestionTasks, runCommunicationAction } from './hub/communication-actions';
+import { reconcileApplicationAnswers } from './hub/application-answers';
 import { BrowserManager } from './hub/browser';
 import { ModelRouter } from './hub/router';
 import { TaskRuntime } from './hub/task-runtime';
@@ -105,6 +106,10 @@ const browserManager = new BrowserManager({ profileDir: join(config.dataDir, 'pr
 const providerCredentials = new ProviderCredentials(join(config.dataDir, 'projecthub', 'provider-credentials.json'));
 const modelRouter = new ModelRouter(join(config.dataDir, 'projecthub', 'router.json'), fetch, process.env, providerCredentials);
 const applicationStore = new ApplicationStore(join(config.dataDir, 'projecthub', 'applications.json'));
+const reconcileAnsweredApplications = () => { try { reconcileApplicationAnswers(projectHub, applicationStore); }
+  catch (error) { log.warn(`Falha ao registrar resposta de candidatura: ${errMsg(error)}`); } };
+reconcileAnsweredApplications();
+const applicationAnswerTimer = setInterval(reconcileAnsweredApplications, 5_000);
 const profileStore = new ProfileStore(join(config.dataDir, 'projecthub', 'profile.json'));
 const reconcileJobAnalysis = () => { try { reconcileAnalysisTasks(projectHub, jobStore); reconcileCompatibilityTasks(projectHub, jobStore, profileStore); }
   catch (error) { log.warn(tr('Falha ao delegar análise de vagas: {0}', [errMsg(error)])); } };
@@ -414,6 +419,7 @@ const discoverOllama = () => { void modelRouter.discoverLocalModel().catch((erro
 discoverOllama();
 const ollamaDiscoveryTimer = setInterval(discoverOllama, 30_000);
 const taskRuntime = new TaskRuntime(join(config.dataDir, 'projecthub', 'execution.json'), async () => {
+  reconcileAnsweredApplications();
   const models = modelRouter.status().models;
   const localAvailable = models.some((model) => model.provider === 'ollama' && model.available);
   const local = async (instruction: string, objective: string, modelId?: string) => {
@@ -697,6 +703,7 @@ function shutdown(signal: string): void {
   clearInterval(backupTimer);
   clearInterval(jobSearchTimer);
   clearInterval(jobAnalysisTimer);
+  clearInterval(applicationAnswerTimer);
   clearInterval(adminSessionTimer);
   clearInterval(connectionPublishTimer);
   clearInterval(webhookListenerTimer);

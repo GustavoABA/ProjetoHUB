@@ -36,6 +36,7 @@ export interface HubQuestion {
   id: string;
   taskId: string;
   applicationId?: string;
+  fieldName?: string;
   text: string;
   createdAt: string;
   state: 'pending' | 'answered' | 'cancelled';
@@ -43,6 +44,8 @@ export interface HubQuestion {
   answer?: string;
   answeredAt?: string;
   sourceMessageId?: string;
+  appliedAt?: string;
+  applicationSyncError?: string;
   previousTaskStatus: TaskStatus;
 }
 interface State { version: 1; agents: HubAgent[]; tasks: HubTask[]; questions?: HubQuestion[] }
@@ -281,13 +284,16 @@ export class HubStore {
     this.save(); return structuredClone(agent);
   }
 
-  askQuestion(input: { taskId: string; text: string; applicationId?: string; deadline?: string }): HubQuestion {
+  askQuestion(input: { taskId: string; text: string; applicationId?: string; fieldName?: string; deadline?: string }): HubQuestion {
     const task = this.state.tasks.find((t) => t.id === input.taskId);
     if (!task) throw new Error('Tarefa não encontrada');
     if (this.state.questions!.some((q) => q.taskId === task.id && q.state === 'pending')) throw new Error('Já existe pergunta pendente para esta tarefa');
     if (!['unassigned', 'queued', 'paused'].includes(task.status)) throw new Error('Tarefa não pode aguardar resposta neste estado');
     const text = required(input.text, 'pergunta', 2000);
     const applicationId = input.applicationId === undefined ? undefined : required(input.applicationId, 'candidatura', 100);
+    if (input.fieldName !== undefined && !applicationId) throw new Error('Campo exige candidatura vinculada');
+    const fieldName = input.fieldName === undefined ? undefined : required(input.fieldName, 'campo da candidatura', 100);
+    if (fieldName && (!/^[\p{L}\p{N}_ .-]{1,100}$/u.test(fieldName) || /\b(senha|password|token|secret|chave de api)\b/i.test(fieldName))) throw new Error('Campo da candidatura inválido ou credencial não permitida');
     let deadline: string | undefined;
     if (input.deadline !== undefined) {
       const parsed = Date.parse(input.deadline);
@@ -295,7 +301,7 @@ export class HubStore {
       deadline = new Date(parsed).toISOString();
     }
     const question: HubQuestion = { id: randomUUID(), taskId: task.id, text, createdAt: new Date().toISOString(), state: 'pending', previousTaskStatus: task.status,
-      ...(applicationId ? { applicationId } : {}), ...(deadline ? { deadline } : {}) };
+      ...(applicationId ? { applicationId } : {}), ...(fieldName ? { fieldName } : {}), ...(deadline ? { deadline } : {}) };
     this.state.questions!.push(question);
     task.status = 'waiting_input'; task.updatedAt = question.createdAt;
     this.save(); return structuredClone(question);
@@ -313,6 +319,22 @@ export class HubStore {
     if (sourceMessageId) question.sourceMessageId = sourceMessageId;
     task.status = question.previousTaskStatus; task.updatedAt = question.answeredAt;
     this.save(); return structuredClone(question);
+  }
+
+  markQuestionApplied(id: string): HubQuestion {
+    const question = this.state.questions!.find((item) => item.id === id);
+    if (!question || question.state !== 'answered' || !question.applicationId || !question.fieldName) throw new Error('Pergunta de candidatura respondida não encontrada');
+    if (!question.appliedAt) question.appliedAt = new Date().toISOString();
+    delete question.applicationSyncError;
+    this.save(); return structuredClone(question);
+  }
+
+  markQuestionSyncError(id: string, error: string): void {
+    const question = this.state.questions!.find((item) => item.id === id);
+    if (!question || question.state !== 'answered' || question.appliedAt) return;
+    const message = required(error, 'erro da candidatura', 500);
+    if (question.applicationSyncError === message) return;
+    question.applicationSyncError = message; this.save();
   }
 
   private save(): void {

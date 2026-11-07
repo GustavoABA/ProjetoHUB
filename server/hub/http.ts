@@ -7,6 +7,7 @@ import type { ModelRouter, Provider, Message } from './router';
 import type { ApplicationStore } from './applications';
 import type { ProfileStore } from './profile';
 import { analyzeJob } from './analysis';
+import { reconcileApplicationAnswers } from './application-answers';
 import type { WhatsAppStore } from './whatsapp';
 import type { AdminKeyStore } from './mcp';
 import type { NgrokManager } from './ngrok';
@@ -236,9 +237,12 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     if (req.method === 'GET') sendJson(res, 200, store.listQuestions());
     else if (req.method === 'POST') void readJson(req).then((raw) => {
       const body = record(raw);
-      if (body.applicationId !== undefined && !applications?.get(string(body.applicationId, 'candidatura'))) throw new Error('Candidatura não encontrada');
+      const linkedApp = body.applicationId === undefined ? undefined : applications?.get(string(body.applicationId, 'candidatura'));
+      if (body.applicationId !== undefined && !linkedApp) throw new Error('Candidatura não encontrada');
+      if (linkedApp && !['draft', 'awaiting_approval', 'approved'].includes(linkedApp.status)) throw new Error('Candidatura com envio iniciado não pode receber novas perguntas');
       sendJson(res, 201, store.askQuestion({ taskId: string(body.taskId, 'tarefa'), text: string(body.text, 'pergunta'),
         ...(body.applicationId === undefined ? {} : { applicationId: string(body.applicationId, 'candidatura') }),
+        ...(body.fieldName === undefined ? {} : { fieldName: string(body.fieldName, 'campo da candidatura') }),
         ...(body.deadline === undefined ? {} : { deadline: string(body.deadline, 'prazo') }) }));
     }).catch((error) => fail(res, error));
     else sendJson(res, 405, { error: 'Método não permitido' });
@@ -263,7 +267,11 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
   const questionAction = /^\/api\/hub\/questions\/([0-9a-f-]+)\/answer$/.exec(path);
   if (questionAction) {
     if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
-    else void readJson(req).then((raw) => sendJson(res, 200, store.answerQuestion(questionAction[1], string(record(raw).answer, 'resposta')))).catch((error) => fail(res, error));
+    else void readJson(req).then((raw) => {
+      store.answerQuestion(questionAction[1], string(record(raw).answer, 'resposta'));
+      if (applications) reconcileApplicationAnswers(store, applications);
+      sendJson(res, 200, store.listQuestions().find((question) => question.id === questionAction[1]));
+    }).catch((error) => fail(res, error));
     return true;
   }
   if (path === '/api/hub/applications') {
