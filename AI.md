@@ -266,3 +266,11 @@ O botão de análise direta de vaga continua extraindo requisitos e avaliando im
 
 **Verificação desta atualização:** testes cobrem delegação entre os dois agentes, persistência da pontuação, mudança de revisão, rejeição de trabalho obsoleto, ausência de delegação sem perfil confirmado e retomada de tarefa na fila após reconstrução dos stores. O módulo `server/hub` passou com 126 testes e quatro optativos ignorados. `npm test` passou com 2.000 testes aprovados e 18 ignorados em 187 arquivos; checagem de tipos, build e `git diff --check` passaram. O painel não foi inspecionado visualmente nesta rodada; nenhuma vaga real ou candidatura externa foi processada durante esses testes.
 
+## Atualização: tarefa do Especialista em candidaturas
+
+O subagente `job-search/applications` aceita no HUD uma vaga salva e cria um rascunho persistente de candidatura. A tarefa conclui depois que o `ApplicationStore` salva o rascunho; a mesma vaga, identificada por fonte e ID da fonte, não recebe um segundo rascunho. Uma referência de vaga não registrada falha sem criar candidatura. O agente não preenche respostas profissionais por conta própria, não solicita aprovação automaticamente e não envia formulários. O usuário ainda revisa o rascunho, informa respostas confirmadas, aprova explicitamente e acompanha a confirmação de envio pelo fluxo já existente do navegador. Sem modelo local, essa criação de rascunho continua disponível.
+
+**Limites:** não há seleção automática de vagas para candidatar, interpretação de campos de portais, anexos de currículo ou envio sem intervenção. Quando um agente de sistema está vinculado a uma sessão Codex, a entrega da instrução ao Codex precede a ação local; o estado `sent` não comprova que o rascunho foi criado. O caminho de ação local foi testado com uma vaga obtida de uma resposta Remotive simulada, sem candidatura externa.
+
+**Verificação desta atualização:** os dez testes de ações de vagas passaram, incluindo rascunho persistente único, recusa de ID desconhecido, delegação e recuperação do Avaliador. `npm test` passou com 2.002 testes aprovados e 18 ignorados; checagem de tipos, build e `git diff --check` passaram. A criação do rascunho não foi exercitada contra um portal real nesta rodada.
+

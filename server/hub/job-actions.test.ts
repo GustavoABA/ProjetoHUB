@@ -5,6 +5,7 @@ import { afterEach, expect, it } from 'vitest';
 import { HubStore } from './store';
 import { JobStore, searchRemotive } from './jobs';
 import { ProfileStore } from './profile';
+import { ApplicationStore } from './applications';
 import { reconcileAnalysisTasks, reconcileCompatibilityTasks, runJobAction } from './job-actions';
 import { dispatchWithLocalFallback } from './dispatcher';
 import type { ModelRouter } from './router';
@@ -152,4 +153,35 @@ it('recovers a queued evaluation after restart without duplicating it', async ()
       router: { complete: async () => { throw new Error('Modelo não deve ser chamado'); } } }));
   expect(result?.status).toBe('done');
   expect(savedJobs.list()[0].compatibility).toBe(100);
+});
+
+it('application specialist creates one persistent draft and never requests or records submission', async () => {
+  const { dir, hub, jobs, profile } = fixture();
+  await searchRemotive(jobs, 'assistant', response);
+  const applications = new ApplicationStore(join(dir, 'applications.json'));
+  const specialist = hub.listAgents().find((agent) => agent.systemKey === 'job-search/applications')!;
+  const job = jobs.list()[0];
+  const task = hub.createTask({ agentId: specialist.id, instruction: job.id });
+  const router = { complete: async () => { throw new Error('Modelo não deve ser chamado'); } };
+  const action = (selected: typeof task, agent: typeof specialist) => runJobAction(selected, agent,
+    { hub, jobs, profile, applications, router });
+  const result = await dispatchWithLocalFallback(hub, undefined, async () => { throw new Error('Modelo genérico não deve ser chamado'); },
+    Date.now(), () => true, action);
+  expect(result).toMatchObject({ id: task.id, status: 'done' });
+  expect(applications.list()).toMatchObject([{ jobId: job.id, status: 'draft', answers: {}, history: [{ action: 'created' }] }]);
+  const again = hub.createTask({ agentId: specialist.id, instruction: job.id });
+  expect(await action(again, specialist)).toContain('Já existe');
+  expect(new ApplicationStore(join(dir, 'applications.json')).list()).toHaveLength(1);
+});
+
+it('application specialist refuses a job ID that was not saved from a source', async () => {
+  const { dir, hub, jobs, profile } = fixture();
+  const applications = new ApplicationStore(join(dir, 'applications.json'));
+  const specialist = hub.listAgents().find((agent) => agent.systemKey === 'job-search/applications')!;
+  const task = hub.createTask({ agentId: specialist.id, instruction: '12345678-1234-1234-1234-123456789012' });
+  const result = await dispatchWithLocalFallback(hub, undefined, async () => { throw new Error('Modelo não deve ser chamado'); },
+    Date.now(), () => true, (selected, agent) => runJobAction(selected, agent, { hub, jobs, profile, applications,
+      router: { complete: async () => { throw new Error('Modelo não deve ser chamado'); } } }));
+  expect(result).toMatchObject({ id: task.id, status: 'failed' });
+  expect(applications.list()).toEqual([]);
 });

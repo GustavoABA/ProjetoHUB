@@ -416,11 +416,11 @@ const taskRuntime = new TaskRuntime(join(config.dataDir, 'projecthub', 'executio
     return { text: response.text, model: response.model, provider: response.provider };
   };
   const eligible = (agent: { codexThread?: string; modelId?: string; systemKey?: string }) =>
-    agent.systemKey === 'job-search/researcher' || agent.systemKey === 'job-search/compatibility' ? true : agent.codexThread
+    ['job-search/researcher', 'job-search/compatibility', 'job-search/applications'].includes(agent.systemKey ?? '') ? true : agent.codexThread
     ? Boolean(hubRunner || localAvailable)
     : agent.modelId ? models.some((model) => model.id === agent.modelId && model.available) : localAvailable;
   const action = (task: Parameters<typeof runJobAction>[0], agent: Parameters<typeof runJobAction>[1]) =>
-    runJobAction(task, agent, { hub: projectHub, jobs: jobStore, profile: profileStore, router: modelRouter });
+    runJobAction(task, agent, { hub: projectHub, jobs: jobStore, profile: profileStore, router: modelRouter, applications: applicationStore });
   await dispatchWithLocalFallback(projectHub, hubRunner, local, Date.now(), eligible, action);
 });
 const hubDispatcher = setInterval(() => {

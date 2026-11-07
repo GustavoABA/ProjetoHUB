@@ -2,6 +2,7 @@ import type { HubAgent, HubTask, HubStore } from './store';
 import { searchRemotive, type JobStore } from './jobs';
 import type { ProfileStore } from './profile';
 import type { ModelRouter } from './router';
+import type { ApplicationStore } from './applications';
 import { analyzeJob, scoreJob } from './analysis';
 
 export interface JobActionDeps {
@@ -9,6 +10,7 @@ export interface JobActionDeps {
   jobs: JobStore;
   profile: ProfileStore;
   router: Pick<ModelRouter, 'complete'>;
+  applications?: ApplicationStore;
   fetcher?: typeof fetch;
 }
 
@@ -64,6 +66,16 @@ export async function runJobAction(task: HubTask, agent: HubAgent, deps: JobActi
     if (!candidate.confirmedAt || candidate.revision !== match[2]) return 'Avaliação desatualizada: o perfil foi alterado ou perdeu a confirmação.';
     const job = scoreJob(deps.jobs, candidate, match[1]);
     return `Compatibilidade de ${job.title} em ${job.company}: ${job.compatibility === null ? 'indeterminada' : `${job.compatibility}%`}. ${job.justification}`;
+  }
+  if (agent.systemKey === 'job-search/applications') {
+    if (!deps.applications) throw new Error('Candidaturas indisponíveis');
+    const job = deps.jobs.list().find((entry) => entry.id === task.instruction);
+    if (!job) throw new Error('Vaga não encontrada entre os anúncios salvos');
+    const existing = deps.applications.list().find((app) => app.source === job.source && app.sourceId === job.sourceId);
+    if (existing) return `Já existe candidatura ${existing.status} para ${job.title} em ${job.company}. Nenhum novo rascunho ou envio foi iniciado.`;
+    deps.applications.create({ jobId: job.id, source: job.source, sourceId: job.sourceId,
+      originalUrl: job.originalUrl, title: job.title, company: job.company });
+    return `Rascunho criado para ${job.title} em ${job.company}. Revise e confirme respostas no painel antes de solicitar aprovação. Nenhum envio foi iniciado.`;
   }
   return undefined;
 }

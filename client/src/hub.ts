@@ -117,19 +117,21 @@ export function mountHubPanel(): void {
     const researcher = role === 'job-search/researcher';
     const analyst = role === 'job-search/requirements';
     const evaluator = role === 'job-search/compatibility';
-    taskInstruction.parentElement!.hidden = analyst || evaluator;
-    taskInstruction.required = !analyst && !evaluator;
-    taskInstruction.disabled = analyst || evaluator;
+    const specialist = role === 'job-search/applications';
+    taskInstruction.parentElement!.hidden = analyst || evaluator || specialist;
+    taskInstruction.required = !analyst && !evaluator && !specialist;
+    taskInstruction.disabled = analyst || evaluator || specialist;
     taskInstruction.placeholder = researcher ? 'Termo de busca na Remotive, até 100 caracteres' : 'Descreva a tarefa';
     taskInstruction.maxLength = researcher ? 100 : 10_000;
-    taskJobLabel.hidden = !analyst && !evaluator;
-    taskJobSelect.required = analyst || evaluator;
+    taskJobLabel.hidden = !analyst && !evaluator && !specialist;
+    taskJobSelect.required = analyst || evaluator || specialist;
     for (const item of taskJobSelect.options) item.disabled = evaluator && item.dataset.analyzed !== 'true';
     if (taskJobSelect.selectedOptions[0]?.disabled) taskJobSelect.value = [...taskJobSelect.options].find((item) => !item.disabled)?.value ?? '';
     (panel.querySelector('#hub-task-hint') as HTMLElement).textContent = researcher
       ? 'Pesquisador de vagas: informe apenas o termo de busca. A consulta usa a Remotive e registra somente anúncios retornados pela fonte.'
       : analyst ? 'Analista de requisitos: escolha uma vaga salva. A extração usa o modelo escolhido no agente ou Ollama local e confere cada requisito no anúncio.'
-        : evaluator ? 'Avaliador: escolha uma vaga já analisada e confirme seu perfil profissional. A comparação usa apenas dados confirmados e não chama modelo.' : '';
+        : evaluator ? 'Avaliador: escolha uma vaga já analisada e confirme seu perfil profissional. A comparação usa apenas dados confirmados e não chama modelo.'
+          : specialist ? 'Especialista em candidaturas: escolha uma vaga salva. A tarefa cria somente um rascunho; respostas e envio exigem sua revisão e aprovação.' : '';
   };
 
   async function refresh(): Promise<void> {
