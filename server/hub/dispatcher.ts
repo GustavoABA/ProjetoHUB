@@ -38,7 +38,7 @@ export async function dispatchNext(store: HubStore, runner: CodexQueueRunner, no
 
 /** Codex delivery, a verified orchestrator action, or a text-only model result. */
 export async function dispatchWithLocalFallback(store: HubStore, runner: CodexQueueRunner | undefined,
-  local: (instruction: string, objective: string, modelId?: string) => Promise<{ text: string; model: string; provider?: Provider }>,
+  local: (instruction: string, objective: string, modelId?: string, fallbackModelIds?: string[]) => Promise<{ text: string; model: string; provider?: Provider }>,
   now = Date.now(), eligible: (agent: HubAgent) => boolean = () => true,
   action?: (task: HubTask, agent: HubAgent) => Promise<string | undefined>): Promise<HubTask | undefined> {
   const task = prioritized(store).find((t) => (t.status === 'queued' || t.status === 'unassigned') &&
@@ -69,7 +69,8 @@ export async function dispatchWithLocalFallback(store: HubStore, runner: CodexQu
     }
   }
   try {
-    const answer = await local(instructionWithAnswers(store, task), agent.objective, agent.codexThread ? undefined : agent.modelId);
+    const answer = await local(instructionWithAnswers(store, task), agent.objective, agent.codexThread ? undefined : agent.modelId,
+      agent.codexThread ? undefined : agent.fallbackModelIds);
     return store.recordLocalResult(task.id, answer.text, answer.model, answer.provider ?? 'ollama');
   } catch (error) {
     if (transientLocal(error)) return store.scheduleLocalRetry(task.id, error instanceof Error ? error.message : 'falha de comunicação', now);

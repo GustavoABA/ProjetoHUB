@@ -111,6 +111,20 @@ it('passes an agent model selection to execution and records the provider that a
   expect(store.listTasks().find((item) => item.id === task.id)).toMatchObject({ status: 'result_ready', executionProvider: 'deepseek', executionModel: 'chosen-model' });
 });
 
+it('passes the agent fallback order to model execution', async () => {
+  const { store } = fixture();
+  const primary = '12345678-1234-1234-1234-123456789011';
+  const backup = '12345678-1234-1234-1234-123456789012';
+  const agent = store.createAgent({ name: 'Triagem', objective: 'Analisar', modelId: primary, fallbackModelIds: [backup] });
+  store.createTask({ agentId: agent.id, instruction: 'Resuma' });
+  const selected: Array<{ primary?: string; backups?: string[] }> = [];
+  await dispatchWithLocalFallback(store, undefined, async (_instruction, _objective, modelId, fallbackModelIds) => {
+    selected.push({ primary: modelId, backups: fallbackModelIds });
+    return { text: 'Resposta', model: 'backup', provider: 'deepseek' };
+  });
+  expect(selected).toEqual([{ primary, backups: [backup] }]);
+});
+
 it('executes the researcher action against a source and persists only real listings', async () => {
   const { store } = fixture();
   store.ensureJobSearchTeam();

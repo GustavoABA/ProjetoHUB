@@ -53,6 +53,47 @@ it('uses only the exact model chosen for an agent regardless of global priority'
   await expect(r.complete([{ role: 'user', content: 'Analise' }], undefined, 'missing')).rejects.toThrow('Modelo selecionado');
 });
 
+it('uses only the explicitly ordered agent fallback chain after a recoverable failure', async () => {
+  const fetcher = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(new Response('', { status: 429 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: 'Reserva respondeu' } }] }), { status: 200 }));
+  const r = router(fetcher, { OPENAI_API_KEY: 'first', DEEPSEEK_API_KEY: 'second', OPENROUTER_API_KEY: 'third' });
+  const unrelated = r.add({ provider: 'openrouter', model: 'unrelated', priority: 1 });
+  const primary = r.add({ provider: 'openai', model: 'primary', priority: 10 });
+  const backup = r.add({ provider: 'deepseek', model: 'backup', priority: 100 });
+  const messages = [{ role: 'system' as const, content: 'Contexto' }, { role: 'user' as const, content: 'Pergunta' }];
+  const result = await r.complete(messages, undefined, primary.id, [backup.id]);
+  expect(result).toMatchObject({ provider: 'deepseek', model: 'backup', text: 'Reserva respondeu' });
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toMatchObject({ model: 'primary', messages });
+  expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toMatchObject({ model: 'backup', messages });
+  expect(fetcher.mock.calls.every((call) => !String(call[1]?.body).includes(unrelated.model))).toBe(true);
+});
+
+it('skips an unavailable primary but does not fall back after an invalid request', async () => {
+  const fetcher = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: 'Backup' } }] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response('', { status: 400 }));
+  const r = router(fetcher, { DEEPSEEK_API_KEY: 'backup' });
+  const primary = r.add({ provider: 'openai', model: 'primary', priority: 1 });
+  const backup = r.add({ provider: 'deepseek', model: 'backup', priority: 2 });
+  expect(await r.complete([{ role: 'user', content: 'Oi' }], undefined, primary.id, [backup.id])).toMatchObject({ provider: 'deepseek' });
+  expect(fetcher).toHaveBeenCalledOnce();
+  await expect(r.complete([{ role: 'user', content: 'Oi' }], undefined, backup.id, [primary.id])).rejects.toThrow('HTTP 400');
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
+it('continues with registered backups after a selected model is removed', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: 'Reserva ativa' } }] }), { status: 200 }));
+  const r = router(fetcher, { DEEPSEEK_API_KEY: 'backup' });
+  const primary = r.add({ provider: 'openai', model: 'primary', priority: 1 });
+  const removedBackup = r.add({ provider: 'openai', model: 'removed', priority: 2 });
+  const backup = r.add({ provider: 'deepseek', model: 'backup', priority: 3 });
+  r.remove(primary.id); r.remove(removedBackup.id);
+  expect(await r.complete([{ role: 'user', content: 'Oi' }], undefined, primary.id, [removedBackup.id, backup.id])).toMatchObject({ provider: 'deepseek', text: 'Reserva ativa' });
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
 it('discovers an installed Ollama model once and keeps a configured choice', async () => {
   const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ models: [
     { name: 'large:latest', size: 8_000_000_000 }, { name: 'small:latest', size: 1_000_000_000 },

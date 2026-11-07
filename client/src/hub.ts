@@ -1,4 +1,4 @@
-type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string; modelId?: string; systemKey?: string; status?: 'active' | 'paused' | 'ended' };
+type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string; modelId?: string; fallbackModelIds?: string[]; systemKey?: string; status?: 'active' | 'paused' | 'ended' };
 type Task = { id: string; agentId: string; instruction: string; priority?: number; status: string; error?: string; result?: string; executionProvider?: string; executionModel?: string; localRetryCount?: number; nextAttemptAt?: string };
 type ExecutionStatus = { maxConcurrent: number; active: number };
 type Session = { name: string; sessionId: string; account: string; provider: string };
@@ -46,7 +46,7 @@ export function mountHubPanel(): void {
   const panel = document.createElement('section'); panel.id = 'projecthub-panel'; panel.hidden = true;
   panel.innerHTML = `<div class="hub-head"><h2>ProjetoHUB · Agentes e tarefas</h2><button type="button" data-close>Fechar</button></div>
     <p>O escritório mostra sessões reais do Codex. Agentes sem sessão vinculada executam tarefas textuais pelo modelo escolhido ou pelo Ollama local automático.</p>
-    <h3>Criar agente</h3><form id="hub-agent-form"><label>Nome<input name="name" maxlength="100" required></label><label>Objetivo<input name="objective" maxlength="2000" required></label><label>Sessão Codex existente (opcional)<select name="session"><option value="">Sem vínculo</option></select></label><label>Modelo para agente sem Codex<select name="modelId"><option value="">Ollama local automático</option></select></label><label>Subagente de (opcional)<select name="parent"><option value="">Agente principal</option></select></label><button>Criar agente</button></form>
+    <h3>Criar agente</h3><form id="hub-agent-form"><label>Nome<input name="name" maxlength="100" required></label><label>Objetivo<input name="objective" maxlength="2000" required></label><label>Sessão Codex existente (opcional)<select name="session"><option value="">Sem vínculo</option></select></label><label>Modelo para agente sem Codex<select name="modelId"><option value="">Ollama local automático</option></select></label><label>Reserva 1<select name="backup1"><option value="">Nenhuma</option></select></label><label>Reserva 2<select name="backup2"><option value="">Nenhuma</option></select></label><label>Reserva 3<select name="backup3"><option value="">Nenhuma</option></select></label><label>Subagente de (opcional)<select name="parent"><option value="">Agente principal</option></select></label><button>Criar agente</button></form><small>Reservas são tentadas na ordem escolhida após falha recuperável do modelo principal. Configure apenas provedores que autoriza a receber o conteúdo das tarefas.</small>
     <h3>Nova tarefa</h3><form id="hub-task-form"><label>Agente<select name="agent" required></select></label><label>Instrução ou termo de busca<input name="instruction" maxlength="10000" required></label><label id="hub-task-job-label" hidden>Vaga para analisar<select name="jobId"></select></label><label>Prioridade<select name="priority"><option value="1">1 · Baixa</option><option value="2">2</option><option value="3" selected>3 · Normal</option><option value="4">4</option><option value="5">5 · Alta</option></select></label><button>Criar tarefa</button></form><p id="hub-task-hint"></p>
     <form id="hub-execution-form"><label>Execuções simultâneas<select name="maxConcurrent"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label><button>Salvar limite</button></form><p id="hub-execution-status"></p>
     <h3>Perguntas pendentes</h3><p>Para preencher um campo do rascunho com a resposta, escolha a candidatura e informe o nome do campo. A resposta não autoriza o envio; revise o rascunho e aprove novamente.</p><form id="hub-question-form"><label>Tarefa<select name="task" required></select></label><label>Pergunta<input name="text" maxlength="2000" required></label><label>Candidatura (opcional)<select name="applicationId"><option value="">Sem candidatura</option></select></label><label id="hub-question-field-label" hidden>Campo da candidatura<input name="fieldName" maxlength="100" placeholder="Ex.: Disponibilidade"></label><button>Registrar pergunta</button></form><ul id="hub-questions"></ul>
@@ -97,6 +97,15 @@ export function mountHubPanel(): void {
   const modelTest = panel.querySelector('#hub-model-test') as HTMLFormElement;
   const sessions = agentForm.elements.namedItem('session') as HTMLSelectElement;
   const agentModel = agentForm.elements.namedItem('modelId') as HTMLSelectElement;
+  const agentBackups = [1, 2, 3].map((index) => agentForm.elements.namedItem(`backup${index}`) as HTMLSelectElement);
+  const syncAgentModels = () => {
+    agentModel.disabled = Boolean(sessions.value);
+    if (agentModel.disabled) agentModel.value = '';
+    for (const backup of agentBackups) {
+      backup.disabled = agentModel.disabled || !agentModel.value;
+      if (backup.disabled || backup.value === agentModel.value) backup.value = '';
+    }
+  };
   const parents = agentForm.elements.namedItem('parent') as HTMLSelectElement;
   const agentsSelect = taskForm.elements.namedItem('agent') as HTMLSelectElement;
   const taskInstruction = taskForm.elements.namedItem('instruction') as HTMLInputElement;
@@ -230,11 +239,13 @@ export function mountHubPanel(): void {
     const modelList = panel.querySelector('#hub-models')!; modelList.replaceChildren();
     for (const model of router.models) {
       const li = document.createElement('li'); li.textContent = `${model.provider} / ${model.model} · prioridade ${model.priority} · ${!model.enabled ? 'desativado' : model.provider === 'ollama' ? 'serviço local não verificado' : model.available ? 'credencial detectada; acesso não verificado' : 'credencial ausente'} `;
+      const priority = document.createElement('input'); priority.type = 'number'; priority.min = '1'; priority.max = '1000'; priority.value = String(model.priority); priority.style.width = '5em'; priority.setAttribute('aria-label', `Prioridade de ${model.provider} / ${model.model}`);
+      priority.onchange = () => void api(`/api/hub/router/models/${model.id}`, { priority: Number(priority.value) }, 'PATCH').then(refresh).catch(showError);
       const toggle = document.createElement('button'); toggle.textContent = model.enabled ? 'Desativar' : 'Ativar';
       toggle.onclick = () => void api(`/api/hub/router/models/${model.id}`, { enabled: !model.enabled }, 'PATCH').then(refresh).catch(showError);
       const remove = document.createElement('button'); remove.textContent = 'Remover';
       remove.onclick = () => void api(`/api/hub/router/models/${model.id}`, {}, 'DELETE').then(refresh).catch(showError);
-      li.append(toggle, remove); modelList.append(li);
+      li.append(priority, toggle, remove); modelList.append(li);
     }
     (panel.querySelector('#hub-browser-status') as HTMLElement).textContent = browser.running
       ? `Navegador ${browser.headless ? 'em segundo plano' : 'visível'} · ${browser.manual ? 'controle manual ativo; automação suspensa' : 'automação disponível'}`
@@ -255,15 +266,21 @@ export function mountHubPanel(): void {
       ? `Próxima consulta: ${schedule.nextRunAt ? new Date(schedule.nextRunAt).toLocaleString('pt-BR') : 'pendente'}${schedule.lastError ? ` · Último erro: ${schedule.lastError}` : ''}`
       : 'Pesquisa automática desligada.';
     const selectedAgentModel = agentModel.value;
+    const selectedAgentBackups = agentBackups.map((select) => select.value);
     const selectedSession = sessions.value;
     const selectedTaskAgent = agentsSelect.value;
     const selectedTaskJob = taskJobSelect.value;
-    sessions.length = 1; agentModel.length = 1; parents.length = 1; agentsSelect.length = 0; taskJobSelect.length = 0; questionTasks.length = 0; questionApplications.length = 1; choices = [];
+    sessions.length = 1; agentModel.length = 1; for (const select of agentBackups) select.length = 1;
+    parents.length = 1; agentsSelect.length = 0; taskJobSelect.length = 0; questionTasks.length = 0; questionApplications.length = 1; choices = [];
     updateQuestionField();
     confirmedProfileRevision = profile.confirmedAt ? profile.revision : undefined;
     for (const job of jobs) { option(taskJobSelect, job.id, `${job.title} — ${job.company}`); taskJobSelect.options[taskJobSelect.length - 1].dataset.analyzed = String(Boolean(job.analyzedAt)); }
     if (selectedTaskJob && [...taskJobSelect.options].some((item) => item.value === selectedTaskJob)) taskJobSelect.value = selectedTaskJob;
-    for (const model of router.models) option(agentModel, model.id, `${model.provider} / ${model.model}${model.available ? '' : ' · indisponível'}`);
+    for (const model of router.models) {
+      const label = `${model.provider} / ${model.model}${model.available ? '' : ' · indisponível'}`;
+      option(agentModel, model.id, label);
+      for (const select of agentBackups) option(select, model.id, label);
+    }
     for (const app of applications.filter((item) => ['draft', 'awaiting_approval', 'approved'].includes(item.status)))
       option(questionApplications, app.id, `${app.title} — ${app.company}`);
     for (const session of snapshot.agents.filter((a) => a.provider === 'codex')) {
@@ -274,13 +291,15 @@ export function mountHubPanel(): void {
     }
     sessions.value = selectedSession;
     agentModel.value = selectedAgentModel;
-    agentModel.disabled = Boolean(sessions.value);
+    for (const [index, select] of agentBackups.entries()) select.value = selectedAgentBackups[index];
+    syncAgentModels();
     const agentList = panel.querySelector('#hub-agents')!; agentList.replaceChildren();
     for (const agent of agents) {
       if (agent.status !== 'ended') { option(parents, agent.id, agent.name); option(agentsSelect, agent.id, agent.name); agentsSelect.options[agentsSelect.length - 1].dataset.systemKey = agent.systemKey ?? ''; }
       const li = document.createElement('li'); li.textContent = `${agent.name} — ${agent.objective}`;
       const selectedModel = router.models.find((model) => model.id === agent.modelId);
       const detail = document.createElement('small'); detail.textContent = ` · ${agent.status === 'ended' ? 'encerrado' : agent.status === 'paused' ? 'pausado' : 'ativo'} · ${agent.codexThread ? 'Codex → Ollama quando indisponível' : agent.modelId ? selectedModel ? `${selectedModel.provider} / ${selectedModel.model}${selectedModel.available ? '' : ' · indisponível'}` : 'modelo removido · aguardando seleção' : 'Ollama local automático'}`; li.append(detail);
+      if (agent.fallbackModelIds?.length) detail.textContent += ` · reservas: ${agent.fallbackModelIds.map((id) => { const model = router.models.find((item) => item.id === id); return model ? `${model.provider}/${model.model}` : 'modelo removido'; }).join(' → ')}`;
       if (agent.status !== 'ended') {
         const edit = document.createElement('form');
         const name = document.createElement('input'); name.value = agent.name; name.maxLength = 100; name.required = true; name.setAttribute('aria-label', 'Nome do agente');
@@ -295,16 +314,33 @@ export function mountHubPanel(): void {
         option(modelSelect, '', 'Ollama local automático');
         for (const model of router.models) option(modelSelect, model.id, `${model.provider} / ${model.model}${model.available ? '' : ' · indisponível'}`);
         modelSelect.value = agent.modelId ?? '';
-        const syncModel = () => { modelSelect.disabled = Boolean(sessionSelect.value); if (modelSelect.disabled) modelSelect.value = ''; };
+        const backups = [0, 1, 2].map((index) => {
+          const label = document.createElement('label'); label.textContent = `Reserva ${index + 1}`;
+          const select = document.createElement('select'); select.setAttribute('aria-label', `Reserva ${index + 1} do agente`);
+          option(select, '', 'Nenhuma');
+          for (const model of router.models) option(select, model.id, `${model.provider} / ${model.model}`);
+          select.value = agent.fallbackModelIds?.[index] ?? '';
+          label.append(select); edit.append(label); return select;
+        });
+        const syncModel = () => {
+          modelSelect.disabled = Boolean(sessionSelect.value);
+          if (modelSelect.disabled) modelSelect.value = '';
+          for (const backup of backups) {
+            backup.disabled = modelSelect.disabled || !modelSelect.value;
+            if (backup.disabled || backup.value === modelSelect.value) backup.value = '';
+          }
+        };
+        modelSelect.onchange = syncModel;
         sessionSelect.onchange = syncModel; syncModel();
-        const save = document.createElement('button'); save.textContent = 'Salvar'; edit.append(name, objective, sessionSelect, modelSelect, save);
+        const save = document.createElement('button'); save.textContent = 'Salvar'; edit.prepend(name, objective, sessionSelect, modelSelect); edit.append(save);
         edit.onsubmit = (event) => {
           event.preventDefault();
           const selection = sessionSelect.value;
           const selected = selection && selection !== 'current' ? choices[Number(selection)] : undefined;
           const link = selection === 'current' ? {} : selected
-            ? { codexThread: selected.thread, codexHome: selected.home, modelId: null }
-            : { codexThread: null, codexHome: null, modelId: modelSelect.value || null };
+            ? { codexThread: selected.thread, codexHome: selected.home, modelId: null, fallbackModelIds: [] }
+            : { codexThread: null, codexHome: null, modelId: modelSelect.value || null,
+              fallbackModelIds: backups.map((item) => item.value).filter(Boolean) };
           void api(`/api/hub/agents/${agent.id}`, { name: name.value, objective: objective.value, ...link }, 'PATCH').then(refresh).catch(showError);
         };
         const toggle = document.createElement('button'); toggle.textContent = agent.status === 'paused' ? 'Retomar agente' : 'Pausar agente';
@@ -452,13 +488,16 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
-    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || panel.querySelector('#hub-tasks')?.contains(document.activeElement) || executionForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || listenerForm.contains(document.activeElement) || webhookForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || credentialForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || panel.querySelector('#hub-tasks')?.contains(document.activeElement) || executionForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || listenerForm.contains(document.activeElement) || webhookForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || panel.querySelector('#hub-models')?.contains(document.activeElement) || credentialForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
-    void api('/api/hub/agents', { name: data.get('name'), objective: data.get('objective'), ...(selected && data.get('session') !== '' ? { codexThread: selected.thread, codexHome: selected.home } : {}), ...(data.get('modelId') && data.get('session') === '' ? { modelId: data.get('modelId') } : {}), ...(data.get('parent') ? { parentId: data.get('parent') } : {}) })
-      .then(() => { agentForm.reset(); message.textContent = 'Agente criado.'; return refresh(); }).catch(showError); };
-  sessions.onchange = () => { agentModel.disabled = Boolean(sessions.value); if (agentModel.disabled) agentModel.value = ''; };
+    void api('/api/hub/agents', { name: data.get('name'), objective: data.get('objective'), ...(selected && data.get('session') !== '' ? { codexThread: selected.thread, codexHome: selected.home } : {}),
+      ...(data.get('modelId') && data.get('session') === '' ? { modelId: data.get('modelId'), fallbackModelIds: agentBackups.map((item) => item.value).filter(Boolean) } : {}),
+      ...(data.get('parent') ? { parentId: data.get('parent') } : {}) })
+      .then(() => { agentForm.reset(); syncAgentModels(); message.textContent = 'Agente criado.'; return refresh(); }).catch(showError); };
+  sessions.onchange = syncAgentModels;
+  agentModel.onchange = syncAgentModels;
   taskForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(taskForm);
     const evaluator = agentsSelect.selectedOptions[0]?.dataset.systemKey === 'job-search/compatibility';
     if (evaluator && !confirmedProfileRevision) { message.textContent = 'Confirme o perfil profissional antes de avaliar compatibilidade.'; return; }

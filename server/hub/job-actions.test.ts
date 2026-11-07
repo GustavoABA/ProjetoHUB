@@ -50,7 +50,8 @@ it('executes the analyst task with source-checked requirements and an explicit m
   reconcileAnalysisTasks(hub, jobs);
   const analyst = hub.listAgents().find((agent) => agent.systemKey === 'job-search/requirements')!;
   const modelId = '12345678-1234-1234-1234-123456789012';
-  hub.updateAgent(analyst.id, { modelId });
+  const backupId = '12345678-1234-1234-1234-123456789013';
+  hub.updateAgent(analyst.id, { modelId, fallbackModelIds: [backupId] });
   const calls: Array<Parameters<ModelRouter['complete']>> = [];
   const router = { complete: async (...args: Parameters<ModelRouter['complete']>) => {
     calls.push(args);
@@ -62,7 +63,7 @@ it('executes the analyst task with source-checked requirements and an explicit m
   expect(result).toMatchObject({ status: 'done' });
   expect(result?.result).toContain('1 requisito');
   expect(jobs.list()[0]).toMatchObject({ requirements: ['Conhecimento em Excel.'], analysisModel: 'ollama/qwen2.5:1.5b' });
-  expect(calls[0]?.slice(1)).toEqual([undefined, modelId]);
+  expect(calls[0]?.slice(1)).toEqual([undefined, modelId, [backupId]]);
 });
 
 it('uses only Ollama for automatically delegated analysis by default', async () => {
@@ -77,7 +78,7 @@ it('uses only Ollama for automatically delegated analysis by default', async () 
       model: 'local', inputTokens: 1, outputTokens: 1 };
   } };
   await runJobAction(task, analyst, { hub, jobs, profile, router });
-  expect(calls[0]?.slice(1)).toEqual(['ollama', undefined]);
+  expect(calls[0]?.slice(1)).toEqual(['ollama', undefined, undefined]);
 });
 
 it('delegates source analysis then confirmed-profile scoring to separate agents', async () => {

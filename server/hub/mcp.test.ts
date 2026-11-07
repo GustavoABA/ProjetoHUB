@@ -20,9 +20,12 @@ test('MCP exige chave, rejeita Origin desconhecida e executa ferramentas autenti
   expect(key).toMatch(/^phub_[a-f0-9]{64}$/);
   expect(JSON.stringify(keys)).not.toContain(key);
   const allowedHosts = ['127.0.0.1'];
+  const router = new ModelRouter(join(dir, 'router.json'));
+  const primary = router.add({ provider: 'ollama', model: 'primary', priority: 1 });
+  const backup = router.add({ provider: 'ollama', model: 'backup', priority: 2 });
   const handler = createMcpRequestHandler({ hub, jobs: new JobStore(join(dir, 'jobs.json')),
     applications: new ApplicationStore(join(dir, 'applications.json')),
-    router: new ModelRouter(join(dir, 'router.json')), keys, allowedHosts });
+    router, keys, allowedHosts });
   const server = createServer(handler);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const addr = server.address(); if (!addr || typeof addr === 'string') throw new Error('Sem porta');
@@ -61,6 +64,10 @@ test('MCP exige chave, rejeita Origin desconhecida e executa ferramentas autenti
     const unlinked = await post('tools/call', { name: 'atualizar_agente', arguments: { id: agentId, sessaoCodex: null, pastaCodex: null } }, key);
     expect(unlinked.status).toBe(200);
     expect(hub.agent(agentId)?.codexThread).toBeUndefined();
+    const routed = await post('tools/call', { name: 'atualizar_agente', arguments: { id: agentId,
+      modeloId: primary.id, modelosReservaIds: [backup.id] } }, key);
+    expect(routed.status).toBe(200);
+    expect(hub.agent(agentId)).toMatchObject({ modelId: primary.id, fallbackModelIds: [backup.id] });
     const old = key; const replacement = keys.rotate();
     expect((await post('tools/list', {}, old)).status).toBe(401);
     expect((await post('tools/list', {}, replacement)).status).toBe(200);

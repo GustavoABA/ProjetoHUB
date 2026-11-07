@@ -422,18 +422,18 @@ const taskRuntime = new TaskRuntime(join(config.dataDir, 'projecthub', 'executio
   reconcileAnsweredApplications();
   const models = modelRouter.status().models;
   const localAvailable = models.some((model) => model.provider === 'ollama' && model.available);
-  const local = async (instruction: string, objective: string, modelId?: string) => {
+  const local = async (instruction: string, objective: string, modelId?: string, fallbackModelIds?: string[]) => {
     const response = await modelRouter.complete([
       { role: 'system', content: `Você auxilia o agente cujo objetivo é: ${objective}. Produza apenas uma resposta textual. Não alegue ter navegado, enviado mensagens, preenchido formulários ou realizado ações externas. Se a tarefa exigir uma ação externa, explique o que falta fazer.` },
       { role: 'user', content: instruction },
-    ], modelId ? undefined : 'ollama', modelId);
+    ], modelId ? undefined : 'ollama', modelId, fallbackModelIds);
     return { text: response.text, model: response.model, provider: response.provider };
   };
-  const eligible = (agent: { codexThread?: string; modelId?: string; systemKey?: string }) =>
+  const eligible = (agent: { codexThread?: string; modelId?: string; fallbackModelIds?: string[]; systemKey?: string }) =>
     agent.systemKey === 'job-search/whatsapp' ? whatsappReady()
       : ['job-search/researcher', 'job-search/compatibility', 'job-search/applications'].includes(agent.systemKey ?? '') ? true : agent.codexThread
     ? Boolean(hubRunner || localAvailable)
-    : agent.modelId ? models.some((model) => model.id === agent.modelId && model.available) : localAvailable;
+    : agent.modelId ? models.some((model) => [agent.modelId, ...(agent.fallbackModelIds ?? [])].includes(model.id) && model.available) : localAvailable;
   const action = async (task: Parameters<typeof runJobAction>[0], agent: Parameters<typeof runJobAction>[1]) =>
     (await runJobAction(task, agent, { hub: projectHub, jobs: jobStore, profile: profileStore, router: modelRouter, applications: applicationStore })) ??
     runCommunicationAction(task, agent, { hub: projectHub, whatsapp: whatsAppStore, apiKey: () => evolutionSettings.apiKey(),

@@ -17,6 +17,8 @@ A chave é aleatória e somente seu hash é persistido em `<dataDir>/projecthub/
 
 `atualizar_agente` aceita `id` e, opcionalmente, `nome` e `objetivo`. Para vincular um agente existente ao Codex, envie juntos `sessaoCodex` (UUID de uma sessão real) e `pastaCodex` (pasta Codex correspondente). Envie `null` nos dois campos para desvincular. O serviço rejeita troca durante um despacho em andamento. O MCP aceita identificadores informados pelo administrador autenticado; o HUD oferece apenas sessões detectadas localmente. Ao desvincular, tarefas pendentes voltam à execução local pelo Ollama quando não há modelo escolhido.
 
+`criar_agente` e `atualizar_agente` também aceitam `modeloId` e `modelosReservaIds` (lista ordenada de até três modelos cadastrados) para agentes sem Codex. Em `atualizar_agente`, envie `modeloId: null` e `modelosReservaIds: []` para voltar ao Ollama automático. As reservas só são tentadas após falhas recuperáveis, com o contexto da tarefa, e podem usar outro provedor configurado.
+
 O estado `sent` indica que o Codex aceitou uma instrução na fila; não comprova a conclusão do trabalho. `result_ready` indica uma resposta textual do Ollama aguardando revisão; não comprova ações externas. Candidaturas `approved` ainda não foram enviadas.
 
 ## ChatGPT

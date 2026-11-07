@@ -49,6 +49,7 @@ it('assigns a configured model to an agent and rejects unknown model IDs', async
   const store = new HubStore(join(dir, 'state.json'));
   const router = new ModelRouter(join(dir, 'router.json'));
   const model = router.add({ provider: 'ollama', model: 'qwen2.5:1.5b', priority: 10 });
+  const backup = router.add({ provider: 'ollama', model: 'qwen2.5:7b', priority: 20 });
   const server = http.createServer((req, res) => handleHubRoute(req, res, new URL(req.url!, 'http://localhost'), store,
     undefined, fetch, undefined, router));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -56,13 +57,16 @@ it('assigns a configured model to an agent and rejects unknown model IDs', async
     const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
     const base = `http://127.0.0.1:${address.port}/api/hub/agents`;
     const create = (body: unknown) => fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const created = await create({ name: 'Agente local', objective: 'Analisar vagas', modelId: model.id });
+    const created = await create({ name: 'Agente local', objective: 'Analisar vagas', modelId: model.id, fallbackModelIds: [backup.id] });
     expect(created.status).toBe(201);
-    const agent = await created.json(); expect(agent.modelId).toBe(model.id);
+    const agent = await created.json(); expect(agent.modelId).toBe(model.id); expect(agent.fallbackModelIds).toEqual([backup.id]);
     const rejected = await create({ name: 'Inválido', objective: 'Analisar vagas', modelId: '00000000-0000-4000-8000-000000000000' });
     expect(rejected.status).toBe(400);
-    const cleared = await fetch(`${base}/${agent.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{"modelId":null}' });
+    const invalid = await fetch(`${base}/${agent.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{"modelId":null}' });
+    expect(invalid.status).toBe(400);
+    const cleared = await fetch(`${base}/${agent.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{"modelId":null,"fallbackModelIds":[]}' });
     expect(cleared.status).toBe(200); expect((await cleared.json()).modelId).toBeUndefined();
+    expect(store.agent(agent.id)?.fallbackModelIds).toBeUndefined();
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 

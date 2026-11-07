@@ -12,6 +12,7 @@ export interface HubAgent {
   codexThread?: string;
   codexHome?: string;
   modelId?: string;
+  fallbackModelIds?: string[];
   createdAt: string;
   status?: 'active' | 'paused' | 'ended';
   systemKey?: string;
@@ -55,6 +56,15 @@ function required(value: string, label: string, max: number): string {
   const clean = value?.trim();
   if (!clean || clean.length > max) throw new Error(`${label} deve conter de 1 a ${max} caracteres`);
   return clean;
+}
+function validatedFallbacks(ids: string[] | undefined, primary?: string, codexThread?: string): string[] | undefined {
+  if (ids === undefined) return undefined;
+  if (!Array.isArray(ids)) throw new Error('Modelos de reserva inválidos');
+  if (ids.length === 0) return undefined;
+  if (ids.length > 3 || !primary || codexThread ||
+      ids.some((id) => typeof id !== 'string' || !THREAD_ID.test(id) || id === primary) || new Set(ids).size !== ids.length)
+    throw new Error('Modelos de reserva inválidos, repetidos ou incompatíveis com o agente');
+  return [...ids];
 }
 
 /** Local state for ProjectHUB; never merges fabricated agents into Habblaud World. */
@@ -107,7 +117,7 @@ export class HubStore {
     if (changed) this.save();
   }
 
-  createAgent(input: { name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string; modelId?: string }): HubAgent {
+  createAgent(input: { name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string; modelId?: string; fallbackModelIds?: string[] }): HubAgent {
     const name = required(input.name, 'nome', 100);
     const objective = required(input.objective, 'objetivo', 2000);
     if (input.parentId && (!this.agent(input.parentId) || this.agent(input.parentId)?.status === 'ended')) throw new Error('Agente principal não encontrado ou encerrado');
@@ -115,10 +125,11 @@ export class HubStore {
     if (input.codexThread && !THREAD_ID.test(input.codexThread)) throw new Error('ID da sessão Codex inválido');
     if (input.modelId !== undefined && !THREAD_ID.test(input.modelId)) throw new Error('ID do modelo inválido');
     if (input.modelId && input.codexThread) throw new Error('Agente com sessão Codex usa Ollama como fallback; escolha um modelo apenas para agente sem Codex');
+    const fallbackModelIds = validatedFallbacks(input.fallbackModelIds, input.modelId, input.codexThread);
     const agent: HubAgent = { id: randomUUID(), name, objective, createdAt: new Date().toISOString(),
       ...(input.parentId ? { parentId: input.parentId } : {}),
       ...(input.codexThread ? { codexThread: input.codexThread, codexHome: input.codexHome } : {}),
-      ...(input.modelId ? { modelId: input.modelId } : {}) };
+      ...(input.modelId ? { modelId: input.modelId } : {}), ...(fallbackModelIds ? { fallbackModelIds } : {}) };
     this.state.agents.push(agent);
     this.save();
     return structuredClone(agent);
@@ -227,7 +238,7 @@ export class HubStore {
     this.save(); return structuredClone(task);
   }
 
-  updateAgent(id: string, changes: { name?: string; objective?: string; modelId?: string | null; codexThread?: string | null; codexHome?: string | null }): HubAgent {
+  updateAgent(id: string, changes: { name?: string; objective?: string; modelId?: string | null; fallbackModelIds?: string[] | null; codexThread?: string | null; codexHome?: string | null }): HubAgent {
     const agent = this.state.agents.find((a) => a.id === id);
     if (!agent) throw new Error('Agente não encontrado');
     if (agent.status === 'ended') throw new Error('Agente encerrado não pode ser editado');
@@ -245,6 +256,7 @@ export class HubStore {
       if (!THREAD_ID.test(changes.modelId)) throw new Error('ID do modelo inválido');
     }
     if (nextThread && nextModel) throw new Error('Agente com sessão Codex usa Ollama como fallback; remova o modelo externo antes de vincular');
+    const nextFallbacks = validatedFallbacks(changes.fallbackModelIds === undefined ? agent.fallbackModelIds : changes.fallbackModelIds ?? [], nextModel, nextThread);
     if (linkChange && (nextThread !== agent.codexThread || nextHome !== agent.codexHome) &&
       this.state.tasks.some((task) => task.agentId === id && task.status === 'dispatching')) throw new Error('Aguarde a tarefa em andamento antes de alterar a sessão Codex');
     if (name !== undefined) agent.name = name;
@@ -252,6 +264,10 @@ export class HubStore {
     if (changes.modelId !== undefined) {
       if (changes.modelId === null) delete agent.modelId;
       else agent.modelId = changes.modelId;
+    }
+    if (changes.fallbackModelIds !== undefined) {
+      if (nextFallbacks) agent.fallbackModelIds = nextFallbacks;
+      else delete agent.fallbackModelIds;
     }
     if (linkChange) {
       if (nextThread) { agent.codexThread = nextThread; agent.codexHome = nextHome; }

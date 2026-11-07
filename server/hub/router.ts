@@ -87,10 +87,16 @@ export class ModelRouter {
     }
     this.save(); return { ...model };
   }
-  async complete(messages: Message[], onlyProvider?: Provider, onlyModelId?: string): Promise<Completion> {
+  async complete(messages: Message[], onlyProvider?: Provider, onlyModelId?: string, fallbackModelIds?: string[]): Promise<Completion> {
     validMessages(messages);
-    if (onlyModelId && !this.state.models.some((m) => m.id === onlyModelId)) throw new Error('Modelo selecionado não encontrado');
-    const available = this.state.models.filter((m) => m.enabled && (!onlyProvider || m.provider === onlyProvider) && (!onlyModelId || m.id === onlyModelId) && (this.credentials?.configured(m.provider) ?? (keys[m.provider] === null || this.env[keys[m.provider]!]))).sort((a, b) => a.priority - b.priority);
+    if (onlyModelId && !this.state.models.some((m) => m.id === onlyModelId) && !fallbackModelIds?.length) throw new Error('Modelo selecionado não encontrado');
+    if (fallbackModelIds !== undefined && (!onlyModelId || onlyProvider || !Array.isArray(fallbackModelIds) || fallbackModelIds.length > 3 ||
+      fallbackModelIds.some((id) => typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) ||
+      new Set([onlyModelId, ...fallbackModelIds]).size !== fallbackModelIds.length + 1)) throw new Error('Modelos de reserva inválidos');
+    const orderedIds = onlyModelId ? [onlyModelId, ...(fallbackModelIds ?? [])] : undefined;
+    const available = this.state.models.filter((m) => m.enabled && (!onlyProvider || m.provider === onlyProvider) &&
+      (!orderedIds || orderedIds.includes(m.id)) && (this.credentials?.configured(m.provider) ?? (keys[m.provider] === null || this.env[keys[m.provider]!]))).sort((a, b) =>
+      orderedIds ? orderedIds.indexOf(a.id) - orderedIds.indexOf(b.id) : a.priority - b.priority);
     if (onlyModelId && !available.length) throw new Error('Modelo selecionado indisponível; verifique a credencial e o estado do modelo');
     if (!available.length) throw new Error('Nenhum modelo disponível: cadastre um modelo e configure a credencial do provedor');
     for (const model of available) {

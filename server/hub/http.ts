@@ -29,6 +29,12 @@ function string(value: unknown, label: string): string {
   if (typeof value !== 'string') throw new Error(`${label} deve ser texto`);
   return value;
 }
+function fallbackIds(value: unknown, router?: ModelRouter): string[] {
+  if (!Array.isArray(value) || value.length > 3 || value.some((item) => typeof item !== 'string')) throw new Error('Modelos de reserva inválidos');
+  const known = new Set(router?.status().models.map((model) => model.id) ?? []);
+  if (value.some((id) => !known.has(id))) throw new Error('Modelo de reserva não encontrado');
+  return value as string[];
+}
 function fail(res: ServerResponse, error: unknown): void {
   if (!res.headersSent) sendJson(res, 400, { error: error instanceof Error ? error.message : 'Requisição inválida' });
 }
@@ -439,7 +445,8 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
         ...(body.parentId === undefined ? {} : { parentId: string(body.parentId, 'agente principal') }),
         ...(body.codexThread === undefined ? {} : { codexThread: string(body.codexThread, 'sessão Codex') }),
         ...(body.codexHome === undefined ? {} : { codexHome: string(body.codexHome, 'pasta Codex') }),
-        ...(body.modelId === undefined ? {} : { modelId: string(body.modelId, 'modelo') }) });
+        ...(body.modelId === undefined ? {} : { modelId: string(body.modelId, 'modelo') }),
+        ...(body.fallbackModelIds === undefined ? {} : { fallbackModelIds: fallbackIds(body.fallbackModelIds, router) }) });
       sendJson(res, 201, agent);
     }).catch((error) => fail(res, error));
     else sendJson(res, 405, { error: 'Método não permitido' });
@@ -458,6 +465,7 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
       sendJson(res, 200, store.updateAgent(agentAction[1], { ...(body.name !== undefined ? { name: string(body.name, 'nome') } : {}),
         ...(body.objective !== undefined ? { objective: string(body.objective, 'objetivo') } : {}),
         ...(body.modelId === undefined ? {} : { modelId: body.modelId === null ? null : string(body.modelId, 'modelo') }),
+        ...(body.fallbackModelIds === undefined ? {} : { fallbackModelIds: body.fallbackModelIds === null ? null : fallbackIds(body.fallbackModelIds, router) }),
         ...(body.codexThread === undefined ? {} : { codexThread: body.codexThread === null ? null : string(body.codexThread, 'sessão Codex') }),
         ...(body.codexHome === undefined ? {} : { codexHome: body.codexHome === null ? null : string(body.codexHome, 'pasta Codex') }) }));
     }).catch((error) => fail(res, error));

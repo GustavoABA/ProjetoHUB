@@ -43,6 +43,11 @@ export interface McpDependencies { hub: HubStore; jobs: JobStore; applications: 
 const result = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }] });
 
 export function createMcpRequestHandler(deps: McpDependencies): (req: IncomingMessage, res: ServerResponse) => void {
+  const ensureModels = (modelId?: string | null, fallbackModelIds?: string[] | null) => {
+    const known = new Set(deps.router.status().models.map((model) => model.id));
+    if (modelId && !known.has(modelId)) throw new Error('Modelo selecionado não encontrado');
+    if (fallbackModelIds?.some((id) => !known.has(id))) throw new Error('Modelo de reserva não encontrado');
+  };
   const handler = createMcpHandler(() => {
     const server = new McpServer({ name: 'projecthub-office', version: '0.1.0' });
     const tool = <T extends z.ZodObject<z.ZodRawShape>>(name: string, description: string, schema: T, run: (args: z.infer<T>) => unknown) => {
@@ -50,13 +55,21 @@ export function createMcpRequestHandler(deps: McpDependencies): (req: IncomingMe
       register(name, { description, inputSchema: schema }, async (args) => result(run(args)));
     };
     tool('listar_agentes', 'Lista agentes configurados e seus estados reais.', z.object({}), () => deps.hub.listAgents());
-    tool('criar_agente', 'Cria um agente ou subagente.', z.object({ nome: z.string(), objetivo: z.string(), agentePaiId: z.string().optional() }),
-      ({ nome, objetivo, agentePaiId }) => deps.hub.createAgent({ name: nome, objective: objetivo, parentId: agentePaiId }));
+    tool('criar_agente', 'Cria um agente ou subagente com modelo principal e reservas opcionais.', z.object({ nome: z.string(), objetivo: z.string(), agentePaiId: z.string().optional(),
+      modeloId: z.string().optional(), modelosReservaIds: z.array(z.string()).max(3).optional() }),
+      ({ nome, objetivo, agentePaiId, modeloId, modelosReservaIds }) => {
+        ensureModels(modeloId, modelosReservaIds);
+        return deps.hub.createAgent({ name: nome, objective: objetivo, parentId: agentePaiId, modelId: modeloId, fallbackModelIds: modelosReservaIds });
+      });
     tool('atualizar_agente', 'Altera nome, objetivo ou vínculo Codex do agente. Sessão e pasta devem ser enviadas juntas; null em ambas desvincula.',
       z.object({ id: z.string(), nome: z.string().optional(), objetivo: z.string().optional(),
-        sessaoCodex: z.string().nullable().optional(), pastaCodex: z.string().nullable().optional() }),
-      ({ id, nome, objetivo, sessaoCodex, pastaCodex }) => deps.hub.updateAgent(id, { name: nome, objective: objetivo,
-        codexThread: sessaoCodex, codexHome: pastaCodex }));
+        sessaoCodex: z.string().nullable().optional(), pastaCodex: z.string().nullable().optional(),
+        modeloId: z.string().nullable().optional(), modelosReservaIds: z.array(z.string()).max(3).nullable().optional() }),
+      ({ id, nome, objetivo, sessaoCodex, pastaCodex, modeloId, modelosReservaIds }) => {
+        ensureModels(modeloId, modelosReservaIds);
+        return deps.hub.updateAgent(id, { name: nome, objective: objetivo, codexThread: sessaoCodex, codexHome: pastaCodex,
+          modelId: modeloId, fallbackModelIds: modelosReservaIds });
+      });
     tool('encerrar_agente', 'Encerra o agente e cancela tarefas ainda não entregues.', z.object({ id: z.string() }),
       ({ id }) => deps.hub.setAgentStatus(id, 'ended'));
     tool('criar_tarefa', 'Cria uma tarefa para um agente, com prioridade opcional de 1 a 5. A entrega ao Codex depende de sessão vinculada.', z.object({ agenteId: z.string(), instrucao: z.string(), prioridade: z.number().int().min(1).max(5).optional() }),

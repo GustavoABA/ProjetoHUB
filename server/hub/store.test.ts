@@ -61,6 +61,22 @@ it('persists a selected model for an agent without a Codex session and allows cl
     codexThread: '12345678-1234-1234-1234-123456789012', codexHome: 'C:/codex' })).toThrow('Codex');
 });
 
+it('persists an ordered fallback chain and rejects conflicting or duplicate models', () => {
+  const file = fixture(); const store = new HubStore(file);
+  const primary = '12345678-1234-1234-1234-123456789011';
+  const backup = '12345678-1234-1234-1234-123456789012';
+  const second = '12345678-1234-1234-1234-123456789013';
+  const agent = store.createAgent({ name: 'Triagem', objective: 'Analisar', modelId: primary,
+    fallbackModelIds: [backup, second] });
+  expect(new HubStore(file).agent(agent.id)?.fallbackModelIds).toEqual([backup, second]);
+  expect(() => store.updateAgent(agent.id, { fallbackModelIds: [primary] })).toThrow();
+  expect(() => store.updateAgent(agent.id, { fallbackModelIds: [backup, backup] })).toThrow();
+  expect(store.agent(agent.id)?.fallbackModelIds).toEqual([backup, second]);
+  expect(store.updateAgent(agent.id, { fallbackModelIds: [second] }).fallbackModelIds).toEqual([second]);
+  expect(store.updateAgent(agent.id, { modelId: null, fallbackModelIds: [] }).fallbackModelIds).toBeUndefined();
+  expect(() => store.createAgent({ name: 'Inválido', objective: 'Analisar', fallbackModelIds: [backup] })).toThrow();
+});
+
 it('links and unlinks an existing agent to Codex while preserving dispatch history', () => {
   const path = fixture(); const store = new HubStore(path);
   const agent = store.createAgent({ name: 'Pesquisador', objective: 'Vagas' });
