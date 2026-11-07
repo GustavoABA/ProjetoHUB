@@ -1,6 +1,20 @@
 # ProjetoHUB — estado técnico
 
-Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importada: `marmottajr/habblaud` no commit `faa1a01` (versão 1.0.3). O repositório de destino tinha somente `LICENSE` no commit `3a8ed78`; esse arquivo foi preservado. A licença original do Habblaud está em `LICENSE-Habblaud`. A especificação fornecida está em `docs/projecthub/ESPECIFICACAO-MESTRE.md`.
+Atualizado em 07/11/2026. Branch de desenvolvimento: `AI-Working`. Base importada: `marmottajr/habblaud` no commit `faa1a01` (versão 1.0.3). O repositório de destino tinha somente `LICENSE` no commit `3a8ed78`; esse arquivo foi preservado. A licença original do Habblaud está em `LICENSE-Habblaud`. A especificação fornecida está em `docs/projecthub/ESPECIFICACAO-MESTRE.md`. Este arquivo registra a evolução cronológica; trechos marcados como auditoria inicial descrevem aquele momento e não substituem o estado atual abaixo.
+
+## Estado atual verificado em 07/11/2026
+
+| Área | Estado comprovado | Limite atual |
+| --- | --- | --- |
+| Build e testes no Windows | `npm test`: 2.044 aprovados, 18 ignorados, nenhum falhou em 192 arquivos; `npm run typecheck` e `npm run build` passaram | Windows 10 especificamente não foi testado |
+| Codex e Ollama | Sessão Codex real detectada no escritório; fila Codex verificada por testes; fallback Codex indisponível → Ollama local passou com geração real e resultado persistido | Timeout ambíguo não dispara fallback; execução completa de uma sessão Codex real ainda sem prova ponta a ponta |
+| Agentes e tarefas | Cadastro, subagentes, pausa, retomada, prioridade, fila persistente, concorrência limitada e ações especializadas de vagas | Resultado final de uma instrução aceita pelo Codex não é automaticamente reconciliado |
+| IA roteada | OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter e Ollama têm adaptadores, prioridades, reserva explícita, limites mensais e custos estimados; Ollama real foi verificado | Provedores externos seguem sem credenciais/teste real; custos não são fatura |
+| Navegador e candidaturas | Edge real com perfil persistente; inspeção de campos, perguntas vinculadas, preenchimento por rótulo e envio aprovado com evidência passaram em páginas locais | Nenhum envio em portal externo foi realizado; arquivos, menus e quadros internos exigem intervenção |
+| WhatsApp | Evolution local diagnosticada; envio, webhook, deduplicação e avisos persistentes têm testes com respostas simuladas | Números serão configurados pelo usuário no HUD; nenhuma mensagem real ou pareamento foi testado |
+| MCP e ngrok | MCP local autenticado e consulta remota simulada passaram; publicação do estado `offline` no GitHub verificada | Túnel público e cadastro direto no ChatGPT não foram validados; OAuth compatível ainda pendente |
+
+As seções seguintes preservam decisões, testes e limites registrados ao longo da implementação. Quando uma afirmação antiga conflitar com esta tabela, consulte a atualização posterior específica e o código/testes atuais.
 
 ## Auditoria de compatibilidade
 
@@ -21,7 +35,7 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 
 `shared/world/` e `server/world/` não foram modificados. O Habblaud World transmite apenas dados verdadeiros quando configurado, conforme `AGENTS.md` e `shared/world/README.md`. As futuras entidades do ProjetoHUB só deverão aparecer no escritório como atividade real e não devem alimentar o Habblaud World de forma artificial.
 
-## Verificações executadas neste Windows
+## Auditoria inicial de 06/11/2026 neste Windows (histórico)
 
 - Node `v22.23.2`, npm `10.9.8`, Docker e `codex.exe` encontrados.
 - `npm ci`: concluído; 50 pacotes instalados, sem vulnerabilidades informadas pelo npm.
@@ -43,7 +57,7 @@ Atualizado em 06/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 - Perfil e análise: 39 testes do módulo `server/hub/` passaram, incluindo extração verificável de requisitos, rejeição de conteúdo inventado, perfil confirmado e invalidação de pontuação antiga. Em teste real na porta 4765, o `qwen2.5:1.5b` produziu um requisito não localizado no anúncio e o sistema recusou registrá-lo. O `qwen2.5:7b` extraiu três trechos literais de um anúncio real da Remotive (`Freelance Writer`, IAPWE). Como nenhum perfil profissional do usuário foi fornecido ao teste, a compatibilidade ficou indeterminada. O modelo de 7B excedeu o prazo inicial de 60 segundos em uma tentativa; o limite local foi ampliado para 180 segundos, e a tentativa seguinte respondeu em cerca de 10 segundos com o modelo aquecido.
 - WhatsApp: 46 testes do módulo `server/hub/` passaram. O Docker local executa `evolution-local:2.3.7-pairing-fix` em `127.0.0.1:8080`; a API informou versão 2.3.7 e duas instâncias anteriores, que não foram alteradas. A instância `procura-de-emprego` ainda não existe na Evolution API. Em servidor isolado na porta 4766, com listener em 4770, o diagnóstico autenticado confirmou essa ausência. Um evento **simulado** com token errado recebeu HTTP 401; o evento correto recebeu 202, respondeu à pergunta relacionada e deixou a segunda tarefa livre; a repetição recebeu 200 como duplicata. Nenhuma mensagem de WhatsApp real foi enviada ou recebida.
 
-## Fase 2 em andamento
+## Primeira etapa da fase 2 (histórico)
 
 `server/hub/` mantém agentes e tarefas em `<dataDir>/projecthub/state.json`. O painel "Agentes e tarefas" no escritório cria agentes com nome e objetivo, permite vincular uma sessão Codex detectada e criar subagentes. Tarefas sem vínculo ficam `unassigned`; tarefas vinculadas entram na fila local e o processo tenta entregá-las pelo `codex queue` existente. `sent` significa **apenas que a instrução foi aceita pela fila**, nunca que a execução terminou. Se o processo cair durante uma entrega, a tarefa volta como `interrupted` para revisão, evitando reenviar automaticamente uma instrução possivelmente entregue. As rotas `/api/hub/*` aceitam apenas conexão do próprio computador.
 
@@ -97,7 +111,7 @@ No Windows, execute `INICIAR-PROJETOHUB.cmd` na raiz do repositório ou `powersh
 
 O endereço local é `http://127.0.0.1:4747`. Não exponha a porta original diretamente à internet: as rotas locais existentes foram projetadas para acesso local. O MCP remoto exigirá serviço e autenticação próprios.
 
-## Próximas entregas e limites
+## Próximas entregas identificadas na auditoria inicial (histórico)
 
 1. Resolver ou classificar os 19 testes que falham no Windows, sem reduzir proteções de arquivos em plataformas POSIX.
 2. Validar o fluxo de hooks e mensagens Codex com as APIs oficialmente disponíveis nesta versão; a detecção de sessão já foi validada.
