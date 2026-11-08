@@ -12,7 +12,7 @@ function transientLocal(error: unknown): boolean {
 function codexUnavailable(error: string): boolean {
   // Queue timeouts are ambiguous: Codex may have accepted the instruction already.
   if (/timeout|timed out|não respondeu|pode ter entrado na fila/i.test(error)) return false;
-  return /offline|unavailable|not found|no rollout found|not running|connection|closed|não encontrado|indisponível|não consegui rodar o Codex|código (ENOENT|EACCES)/i.test(error);
+  return /offline|unavailable|not found|no rollout found|not running|connection|closed|não encontrado|indisponível|não consegui rodar o Codex|código (ENOENT|EACCES)|not logged in|authentication required|token expired|sign in again/i.test(error);
 }
 
 function instructionWithAnswers(store: HubStore, task: HubTask): string {

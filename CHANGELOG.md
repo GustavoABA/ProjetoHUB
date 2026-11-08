@@ -13,6 +13,7 @@ do meio (0.**3**.0).
 ### Adicionado no ProjetoHUB
 
 - Personagens pixel-art dos agentes próprios em uma faixa do escritório, com animações e estados derivados das tarefas persistidas, sem alterar a telemetria do Habblaud World.
+- Fallback para Ollama local também quando o Codex informa ausência de login, autenticação necessária ou token expirado.
 - Painel local para cadastrar agentes e subagentes, vincular sessões Codex existentes e criar ou pausar tarefas.
 - Estado persistente de agentes e tarefas com registro separado de instruções aceitas pela fila do Codex.
 - Equipe inicial "Procura de Emprego" configurada sem simular sessões ativas. Pesquisa manual de vagas remotas na fonte pública Remotive, com origem, deduplicação e limite de consultas.

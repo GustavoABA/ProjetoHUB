@@ -204,7 +204,9 @@ it('keeps Codex as the primary executor when its queue accepts the instruction',
   expect(store.listTasks().find((item) => item.id === task.id)?.status).toBe('sent');
 });
 
-it.each(['no rollout found for thread id', 'não consegui rodar o Codex (codex.exe)', 'o codex queue falhou (código ENOENT)'])(
+it.each(['no rollout found for thread id', 'não consegui rodar o Codex (codex.exe)', 'o codex queue falhou (código ENOENT)',
+  'Error: Not logged in. Please run codex login', 'Error: authentication required for this account',
+  'Error: token expired, sign in again'])(
   'uses local Ollama when the Codex session cannot be opened: %s', async (error) => {
     const { store, agent } = fixture();
     const task = store.createTask({ agentId: agent.id, instruction: 'Analise' });
