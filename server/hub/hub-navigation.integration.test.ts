@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,6 +20,14 @@ it.skipIf(process.env.PROJECTHUB_UI_E2E !== '1')('navigates the real office HUD 
   const edge = process.env.PROJECTHUB_EDGE ?? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
   if (!existsSync(edge)) throw new Error('Edge não encontrado para o teste visual');
   const dataDir = mkdtempSync(join(tmpdir(), 'projecthub-hud-tabs-'));
+  const hubDir = join(dataDir, 'projecthub'); mkdirSync(hubDir);
+  writeFileSync(join(hubDir, 'applications.json'), JSON.stringify({ version: 1, applications: [{
+    id: '12345678-1234-1234-1234-123456789012', jobId: 'job-test', source: 'Teste local', sourceId: 'job-test',
+    originalUrl: 'https://example.com/job-test', title: 'Vaga de teste', company: 'Empresa de teste',
+    status: 'awaiting_approval', answers: { Disponibilidade: 'Confirmada' },
+    createdAt: '2026-11-08T00:00:00.000Z', updatedAt: '2026-11-08T00:00:00.000Z',
+    history: [{ at: '2026-11-08T00:00:00.000Z', action: 'approval_requested' }],
+  }] }));
   const port = await freePort();
   const child = spawn(process.execPath, ['dist/server/index.js'], { cwd: process.cwd(), windowsHide: true,
     env: { ...process.env, HABBLAUD_DATA_DIR: dataDir, HABBLAUD_PORT: String(port), HABBLAUD_CODEX: '0',
@@ -36,6 +44,9 @@ it.skipIf(process.env.PROJECTHUB_UI_E2E !== '1')('navigates the real office HUD 
     browser = await chromium.launch({ executablePath: edge, headless: true });
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'domcontentloaded' });
+    await page.locator('#projecthub-open').waitFor();
+    await expect.poll(() => page.locator('#hub-office-crew .hub-office-agent').filter({ hasText: 'Especialista em candidaturas' }).innerText())
+      .toContain('Aguardando permissão');
     await page.locator('#projecthub-open').click();
     await expect.poll(() => page.locator('#hub-nav [data-view]').count()).toBe(7);
     await page.locator('#hub-nav [data-view="jobs"]').click();

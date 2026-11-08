@@ -208,7 +208,7 @@ export function mountHubPanel(): void {
       api<LeverBoard[]>('/api/hub/jobs/lever/boards'),
       api<JobSearchPreferences>('/api/hub/jobs/preferences'),
     ]);
-    office.update(agents, tasks);
+    office.update(agents, tasks, applications);
     if (!jobPreferencesForm.contains(document.activeElement)) {
       for (const name of ['title', 'location', 'desiredSalary', 'area', 'seniority'] as const)
         (jobPreferencesForm.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement).value = jobPreferences[name];

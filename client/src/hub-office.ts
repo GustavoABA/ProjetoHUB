@@ -3,15 +3,22 @@ import { tr } from '../../shared/i18n';
 
 export type OfficeAgent = { id: string; name: string; objective: string; status?: 'active' | 'paused' | 'ended'; systemKey?: string };
 export type OfficeTask = { id: string; agentId: string; instruction: string; status: string; updatedAt?: string };
+export type OfficeApplication = { id: string; status: string };
 type Activity = { label: string; pose: Pose; tone: string };
 
 /** The strip reads only persisted ProjectHUB state; it does not alter Habblaud World telemetry. */
-export function agentActivity(agent: OfficeAgent, tasks: OfficeTask[]): Activity {
+export function agentActivity(agent: OfficeAgent, tasks: OfficeTask[], applications: OfficeApplication[] = []): Activity {
   if (agent.status === 'ended') return { label: 'Encerrado', pose: 'stand', tone: 'muted' };
   if (agent.status === 'paused') return { label: 'Pausado', pose: 'wait', tone: 'muted' };
   const own = tasks.filter((task) => task.agentId === agent.id);
   const active = own.filter((task) => ['dispatching', 'sent', 'waiting_input', 'queued', 'unassigned', 'paused'].includes(task.status));
-  const selected = (active.length ? active : own).sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))[0];
+  const rank: Record<string, number> = { dispatching: 5, sent: 4, waiting_input: 3, queued: 2, unassigned: 2, paused: 1 };
+  const selected = (active.length ? active : own).sort((a, b) =>
+    (rank[b.status] ?? 0) - (rank[a.status] ?? 0) || (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))[0];
+  if (agent.systemKey === 'job-search/applications' &&
+    applications.some((application) => application.status === 'awaiting_approval') &&
+    !['dispatching', 'sent', 'waiting_input'].includes(selected?.status ?? ''))
+    return { label: 'Aguardando permissão', pose: 'raise_hand', tone: 'waiting' };
   if (!selected) return { label: 'Ocioso', pose: 'stand', tone: 'idle' };
   switch (selected.status) {
     case 'dispatching': return agent.systemKey === 'job-search/researcher'
@@ -39,7 +46,7 @@ body:has(#hub-office:not([hidden])) .ui-empty{display:none}
 `;
 
 export function mountAgentOffice(worldCanvas: HTMLCanvasElement, panel: HTMLElement, openPanel: () => void): {
-  update: (agents: OfficeAgent[], tasks: OfficeTask[]) => void;
+  update: (agents: OfficeAgent[], tasks: OfficeTask[], applications?: OfficeApplication[]) => void;
   poll: () => Promise<void>;
 } {
   const style = document.createElement('style'); style.textContent = css; document.head.append(style);
@@ -65,11 +72,11 @@ export function mountAgentOffice(worldCanvas: HTMLCanvasElement, panel: HTMLElem
     }
   };
   window.setInterval(animate, 300);
-  const update = (agents: OfficeAgent[], tasks: OfficeTask[]) => {
+  const update = (agents: OfficeAgent[], tasks: OfficeTask[], applications: OfficeApplication[] = []) => {
     current = [];
     crew.replaceChildren();
     for (const agent of agents) {
-      const activity = agentActivity(agent, tasks);
+      const activity = agentActivity(agent, tasks, applications);
       const button = document.createElement('button'); button.type = 'button'; button.className = 'hub-office-agent'; button.dataset.tone = activity.tone;
       button.title = `${agent.name} — ${activity.label}. ${tr('Abrir agentes e tarefas')}`;
       button.setAttribute('aria-label', button.title);
@@ -85,10 +92,11 @@ export function mountAgentOffice(worldCanvas: HTMLCanvasElement, panel: HTMLElem
     if (loading || !visible()) return;
     loading = true;
     try {
-      const responses = await Promise.all([fetch('/api/hub/agents'), fetch('/api/hub/tasks')]);
+      const responses = await Promise.all([fetch('/api/hub/agents'), fetch('/api/hub/tasks'), fetch('/api/hub/applications')]);
       if (responses.some((response) => !response.ok)) throw new Error('Estado indisponível');
-      const [agents, tasks] = await Promise.all([responses[0].json() as Promise<OfficeAgent[]>, responses[1].json() as Promise<OfficeTask[]>]);
-      update(agents, tasks);
+      const [agents, tasks, applications] = await Promise.all([responses[0].json() as Promise<OfficeAgent[]>,
+        responses[1].json() as Promise<OfficeTask[]>, responses[2].json() as Promise<OfficeApplication[]>]);
+      update(agents, tasks, applications);
     } catch {
       current = []; crew.replaceChildren(); root.hidden = true;
     } finally { loading = false; }

@@ -430,3 +430,11 @@ O painel **Agentes e tarefas** agora oferece acesso direto a Agentes, Tarefas, V
 
 **Verificação desta atualização:** o teste de interface com Edge e servidor isolado navegou por todas as áreas, preservou campo não salvo, usou o teclado, verificou a largura de 390 px e voltou ao escritório; passou novamente após a compilação final. `npm test` passou com 2.062 testes aprovados e 20 ignorados em 196 arquivos. `npm run typecheck`, `npm run build` e `git diff --check` passaram. A checagem de traduções não encontrou textos novos sem tradução no módulo de navegação; ainda informa textos antigos de outras áreas.
 
+## Atualização: aprovação pendente visível no escritório
+
+O personagem do Especialista em candidaturas agora mostra **Aguardando permissão** quando ao menos uma candidatura persistida está no estado `awaiting_approval`. Quando a aprovação é concedida ou recusada, a indicação desaparece na próxima atualização. Uma tarefa efetivamente em despacho ou aguardando o Codex continua tendo precedência visual. A escolha do estado de tarefa também prioriza despacho real sobre uma tarefa mais recente que apenas entrou na fila; anteriormente esta podia ocultar o trabalho em curso. O HUD e a faixa do escritório consultam o mesmo estado salvo no servidor.
+
+**Limites:** o navegador do painel pode ser operado manualmente e não está associado a um agente em execução, por isso ainda não gera o estado visual **Navegando**. A aprovação exibida pertence ao conjunto de candidaturas do especialista, não identifica uma candidatura individual no personagem; detalhes e decisão permanecem na área Candidaturas. O sistema não envia candidatura pelo simples fato de mostrar o estado.
+
+**Verificação desta atualização:** os testes de lógica foram escritos antes da correção e reproduziram a indicação ausente e a prioridade incorreta da fila. Após a mudança, os sete testes passaram. Um teste com Edge, servidor e dados isolados confirmou que o personagem mostra **Aguardando permissão** para uma candidatura de teste persistida; continuou cobrindo a navegação por abas. `npm test` passou com 2.064 testes aprovados e 20 ignorados em 196 arquivos. Build, checagem de tipos e `git diff --check` passaram.
+

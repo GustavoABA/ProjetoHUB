@@ -15,6 +15,11 @@ describe('agentActivity', () => {
       .toBe('Aguardando resposta');
   });
 
+  it('shows a running task even when a newer task is queued for the same agent', () => {
+    expect(agentActivity(agent, [task('dispatching', '2026-11-07T09:00:00Z'), task('queued', '2026-11-07T10:00:00Z')]).label)
+      .toBe('Pesquisando');
+  });
+
   it('distinguishes accepted Codex instruction from completed work', () => {
     expect(agentActivity(agent, [task('sent', '2026-11-07T10:00:00Z')]).label).toBe('Aguardando Codex');
     expect(agentActivity(agent, [task('result_ready', '2026-11-07T10:00:00Z')]).label).toBe('Resultado pronto');
@@ -28,5 +33,14 @@ describe('agentActivity', () => {
   it('keeps an idle agent idle and reports failed work', () => {
     expect(agentActivity(agent, []).label).toBe('Ocioso');
     expect(agentActivity(agent, [task('failed', '2026-11-07T10:00:00Z')]).label).toBe('Erro');
+  });
+
+  it('shows a real pending application approval for the application specialist', () => {
+    const specialist = { ...agent, systemKey: 'job-search/applications' };
+    const applications = [{ id: 'app', status: 'awaiting_approval' }];
+    expect(agentActivity(specialist, [task('done', '2026-11-07T10:00:00Z')], applications).label).toBe('Aguardando permissão');
+    expect(agentActivity(agent, [], applications).label).toBe('Ocioso');
+    expect(agentActivity(specialist, [], [{ id: 'app', status: 'approved' }]).label).toBe('Ocioso');
+    expect(agentActivity(specialist, [task('dispatching', '2026-11-07T10:00:00Z')], applications).label).toBe('Trabalhando');
   });
 });

@@ -134,6 +134,7 @@ export const EN: Readonly<Record<string, string>> = {
   "Pesquisando": "Researching",
   "Aguardando Codex": "Waiting for Codex",
   "Aguardando resposta": "Waiting for reply",
+  "Aguardando permissão": "Waiting for approval",
   "Na fila": "Queued",
   "Tarefa pausada": "Task paused",
   "Finalizado": "Finished",
