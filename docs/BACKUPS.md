@@ -1,6 +1,6 @@
 # Backups do ProjetoHUB
 
-O serviço guarda cópias em `<HABBLAUD_DATA_DIR>/projecthub/backups/`. Cria uma cópia na primeira abertura e outra quando a mais recente tiver pelo menos 24 horas. O painel **Agentes e tarefas → Backups locais** permite criar uma cópia imediatamente e agendar a restauração de uma cópia existente.
+O serviço guarda cópias em `<HABBLAUD_DATA_DIR>/projecthub/backups/`. Cria uma cópia na primeira abertura e outra quando a mais recente tiver pelo menos 24 horas. O painel **Agentes e tarefas → Configurações → Backups locais** permite criar uma cópia imediatamente e agendar a restauração de uma cópia existente.
 
 Cada arquivo compactado inclui uma lista de arquivos permitidos e o SHA-256 de cada conteúdo. O serviço confere tamanho, caminhos e hashes antes de aceitar a restauração. O conteúdo inclui agentes, tarefas, perguntas, vagas, roteador, candidaturas, perfil profissional, estado WhatsApp, sessão administrativa, registro de navegação e capturas que comprovam envios. Pode conter dados pessoais; mantenha o diretório local protegido e faça cópias externas apenas para destino confiável.
 

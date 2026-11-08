@@ -4,7 +4,7 @@ O serviço MCP é iniciado junto ao escritório em `http://127.0.0.1:4748/mcp` p
 
 ## Configuração local
 
-1. Abra **Agentes e tarefas > Controle remoto MCP** no escritório.
+1. Abra **Agentes e tarefas → Configurações → Controle remoto MCP** no escritório.
 2. Acione **Gerar ou revogar chave administrativa**. Copie a chave exibida; ela aparece uma vez. Repetir a operação revoga a anterior.
 3. Acione **Copiar configuração de conexão** enquanto a chave ainda está visível. Um cliente MCP que aceite `Authorization: Bearer <chave>` pode usar a URL `/mcp` copiada.
 4. Confirme que `GET http://127.0.0.1:4748/health` responde `ok: true`. Essa rota não expõe dados do escritório. Sem chave, chamadas a `/mcp` retornam HTTP 401.

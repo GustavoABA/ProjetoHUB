@@ -1,6 +1,6 @@
 # Modelos de IA no ProjetoHUB
 
-Abra **Agentes e tarefas → Modelos de IA**. No Windows, escolha OpenAI, Anthropic, Google Gemini, DeepSeek ou OpenRouter, informe a chave e clique em **Salvar chave**. Ela é protegida para a conta atual do Windows antes de ser gravada. O campo é limpo depois e a API devolve somente o estado, não o valor. **Remover chave local** apaga a cópia protegida.
+Abra **Agentes e tarefas → Configurações → Modelos de IA**. No Windows, escolha OpenAI, Anthropic, Google Gemini, DeepSeek ou OpenRouter, informe a chave e clique em **Salvar chave**. Ela é protegida para a conta atual do Windows antes de ser gravada. O campo é limpo depois e a API devolve somente o estado, não o valor. **Remover chave local** apaga a cópia protegida.
 
 Se o servidor tiver uma variável `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY` ou `OPENROUTER_API_KEY`, ela tem prioridade. O painel mostra **chave do ambiente** e não a substitui. Em Linux ou Docker, forneça as chaves por essas variáveis; o painel não as grava localmente. As chaves não entram nos backups do ProjetoHUB. A autenticação do Codex não é usada para acessar APIs de modelos.
 

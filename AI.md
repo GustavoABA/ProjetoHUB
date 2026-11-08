@@ -422,3 +422,11 @@ A [Postings API oficial da Lever](https://github.com/lever/postings-api/blob/mas
 
 **Verificação desta atualização:** testes direcionados de fonte, agente, API e backup passaram (43 testes). O teste optativo com a API pública `leverdemo` passou em diretório temporário e não escreveu no estado do usuário. O Edge abriu o HUD de uma instância isolada, cadastrou `leverdemo` pelo formulário e exibiu o registro global. `npm test` passou com 2.062 testes aprovados e 19 ignorados em 195 arquivos; checagem de tipos e build passaram. A agenda de pesquisas Lever e o fluxo de candidatura de uma vaga Lever ainda não foram testados de ponta a ponta com uma empresa real.
 
+## Atualização: navegação por áreas no HUD
+
+O painel **Agentes e tarefas** agora oferece acesso direto a Agentes, Tarefas, Vagas, Candidaturas, Navegador e Configurações, além do retorno ao escritório. Os controles existentes foram movidos dentro do mesmo documento sem substituir seus elementos, preservando formulários em edição e os manipuladores de eventos. A navegação usa abas com indicação semântica para leitores de tela e aceita setas, Home e End no teclado. Em janelas estreitas, a barra de abas rola horizontalmente e o painel respeita a largura disponível. As configurações de modelos, WhatsApp, MCP, backups e inicialização ficam na área Configurações.
+
+**Limites:** esta mudança organiza a interface existente; não amplia as integrações externas. A barra de agentes pixel-art continua separada do cenário do Habblaud World. A operação real de WhatsApp ainda depende dos números que o usuário cadastrará no HUD, e o fallback Codex → Ollama continua condicionado à disponibilidade de um Ollama local.
+
+**Verificação desta atualização:** o teste de interface com Edge e servidor isolado navegou por todas as áreas, preservou campo não salvo, usou o teclado, verificou a largura de 390 px e voltou ao escritório; passou novamente após a compilação final. `npm test` passou com 2.062 testes aprovados e 20 ignorados em 196 arquivos. `npm run typecheck`, `npm run build` e `git diff --check` passaram. A checagem de traduções não encontrou textos novos sem tradução no módulo de navegação; ainda informa textos antigos de outras áreas.
+

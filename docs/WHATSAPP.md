@@ -1,6 +1,6 @@
 # Evolution API e WhatsApp
 
-No painel **Agentes e tarefas**, informe a URL da Evolution API e, no Windows, sua chave de API em **Conexão Evolution**. O endereço padrão é `http://127.0.0.1:8080`. A chave digitada é protegida pela conta do Windows antes de ser salva; o campo fica vazio após gravar e o valor não pode ser recuperado pela interface. O botão de remoção apaga a chave local. Se o servidor já receber `EVOLUTION_API_KEY` no ambiente, essa variável tem prioridade e a chave deve ser alterada fora do painel. Em Linux/Docker, use a variável de ambiente para a chave.
+No painel **Agentes e tarefas → Configurações**, informe a URL da Evolution API e, no Windows, sua chave de API em **Conexão Evolution**. O endereço padrão é `http://127.0.0.1:8080`. A chave digitada é protegida pela conta do Windows antes de ser salva; o campo fica vazio após gravar e o valor não pode ser recuperado pela interface. O botão de remoção apaga a chave local. Se o servidor já receber `EVOLUTION_API_KEY` no ambiente, essa variável tem prioridade e a chave deve ser alterada fora do painel. Em Linux/Docker, use a variável de ambiente para a chave.
 
 Os números principal e secundário podem ser informados mais tarde no mesmo painel, somente com DDI, DDD e dígitos. Nenhuma mensagem é enviada ao salvar a conexão ou os números. O diagnóstico é uma consulta de leitura e informa se a instância `procura-de-emprego` existe e qual estado foi informado pela Evolution.
 
