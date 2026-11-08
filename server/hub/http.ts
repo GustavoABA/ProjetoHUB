@@ -22,6 +22,7 @@ import type { ProviderCredentials } from './provider-credentials';
 import type { TaskRuntime } from './task-runtime';
 import { configureJobWebhook, connectJobInstance, ensureJobInstance } from './evolution-instance';
 import { registerGreenhouseBoard, searchGreenhouseBoards, type GreenhouseBoardStore } from './greenhouse';
+import { registerLeverBoard, searchLeverBoards, type LeverBoardStore } from './lever';
 import { evaluateJobPreferences, type JobSearchPreferences } from './job-preferences';
 
 function record(value: unknown): Record<string, unknown> {
@@ -48,7 +49,7 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /** Routes are mounted only on the local server, after the normal Host/Origin guard. */
-export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore, ngrok?: NgrokManager, session?: ConnectionSession, publisher?: ConnectionPublisher, backups?: BackupManager, windowsStartup?: WindowsStartupManager, evolution?: EvolutionSettings, webhookListener?: WebhookListener, providerCredentials?: ProviderCredentials, taskRuntime?: TaskRuntime, greenhouseBoards?: GreenhouseBoardStore): boolean {
+export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: URL, store: HubStore, jobs?: JobStore, fetcher: typeof fetch = fetch, browser?: BrowserManager, router?: ModelRouter, applications?: ApplicationStore, profile?: ProfileStore, whatsapp?: WhatsAppStore, mcpKeys?: AdminKeyStore, ngrok?: NgrokManager, session?: ConnectionSession, publisher?: ConnectionPublisher, backups?: BackupManager, windowsStartup?: WindowsStartupManager, evolution?: EvolutionSettings, webhookListener?: WebhookListener, providerCredentials?: ProviderCredentials, taskRuntime?: TaskRuntime, greenhouseBoards?: GreenhouseBoardStore, leverBoards?: LeverBoardStore): boolean {
   const path = url.pathname;
   if (!path.startsWith('/api/hub/')) return false;
   const remote = req.socket.remoteAddress?.replace(/^::ffff:/i, '');
@@ -467,6 +468,30 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     if (!greenhouseBoards || !jobs) sendJson(res, 503, { error: 'Pesquisa Greenhouse indisponível' });
     else if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
     else void readJson(req).then((raw) => searchGreenhouseBoards(greenhouseBoards, jobs,
+      string(record(raw).query, 'pesquisa'), fetcher)).then((result) => sendJson(res, 200, result)).catch((error) => fail(res, error));
+    return true;
+  }
+  if (path === '/api/hub/jobs/lever/boards') {
+    if (!leverBoards) sendJson(res, 503, { error: 'Páginas Lever indisponíveis' });
+    else if (req.method === 'GET') sendJson(res, 200, leverBoards.list());
+    else if (req.method === 'POST') void readJson(req).then((raw) => {
+      const body = record(raw);
+      return registerLeverBoard(leverBoards, string(body.url, 'endereço'), string(body.company, 'empresa'), fetcher);
+    }).then((board) => sendJson(res, 201, board)).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
+  const leverBoard = /^\/api\/hub\/jobs\/lever\/boards\/(global|eu)\/([A-Za-z0-9_-]+)$/.exec(path);
+  if (leverBoard) {
+    if (!leverBoards) sendJson(res, 503, { error: 'Páginas Lever indisponíveis' });
+    else if (req.method !== 'DELETE') sendJson(res, 405, { error: 'Método não permitido' });
+    else { req.resume(); sendJson(res, leverBoards.remove(leverBoard[2], leverBoard[1] as 'global' | 'eu') ? 200 : 404, { removed: leverBoard[2] }); }
+    return true;
+  }
+  if (path === '/api/hub/jobs/lever/search') {
+    if (!leverBoards || !jobs) sendJson(res, 503, { error: 'Pesquisa Lever indisponível' });
+    else if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
+    else void readJson(req).then((raw) => searchLeverBoards(leverBoards, jobs,
       string(record(raw).query, 'pesquisa'), fetcher)).then((result) => sendJson(res, 200, result)).catch((error) => fail(res, error));
     return true;
   }

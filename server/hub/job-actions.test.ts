@@ -10,6 +10,7 @@ import { reconcileAnalysisTasks, reconcileCompatibilityTasks, runJobAction } fro
 import { dispatchWithLocalFallback } from './dispatcher';
 import type { ModelRouter } from './router';
 import { GreenhouseBoardStore } from './greenhouse';
+import { LeverBoardStore } from './lever';
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -37,6 +38,23 @@ it('continues research with a registered career board when Remotive is unavailab
   expect(result).toContain('Greenhouse: 1 vaga(s) nova(s)');
   expect(result).toContain('Remotive:');
   expect(jobs.list()).toMatchObject([{ source: 'Greenhouse', sourceId: 'empresa:42' }]);
+  expect(hub.listTasks().some((item) => item.agentId !== researcher.id && item.instruction === jobs.list()[0].id)).toBe(true);
+});
+
+it('delegates a sourced Lever vacancy when Remotive is unavailable', async () => {
+  const { dir, hub, jobs, profile } = fixture();
+  const leverBoards = new LeverBoardStore(join(dir, 'lever-boards.json'));
+  leverBoards.addVerified('empresa', 'global', 'Empresa informada');
+  const researcher = hub.listAgents().find((agent) => agent.systemKey === 'job-search/researcher')!;
+  const task = hub.createTask({ agentId: researcher.id, instruction: 'assistente' });
+  const fetcher = async (url: URL | RequestInfo) => String(url).includes('api.lever.co')
+    ? new Response(JSON.stringify([{ id: 'lever1', text: 'Assistente', categories: { location: 'Brasil' },
+      workplaceType: 'remote', descriptionPlain: 'Atendimento', hostedUrl: 'https://jobs.lever.co/empresa/lever1' }]), { status: 200 })
+    : new Response('', { status: 503 });
+  const result = await runJobAction(task, researcher, { hub, jobs, profile, router: { complete: async () => { throw new Error('unused'); } },
+    leverBoards, fetcher: fetcher as typeof fetch });
+  expect(result).toContain('Lever: 1 vaga(s) nova(s)');
+  expect(jobs.list()).toMatchObject([{ source: 'Lever', sourceId: 'global:empresa:lever1' }]);
   expect(hub.listTasks().some((item) => item.agentId !== researcher.id && item.instruction === jobs.list()[0].id)).toBe(true);
 });
 

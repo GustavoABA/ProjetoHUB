@@ -81,6 +81,7 @@ import { WindowsStartupManager } from './hub/windows-startup';
 import { EvolutionSettings } from './hub/evolution-settings';
 import { ProviderCredentials } from './hub/provider-credentials';
 import { GreenhouseBoardStore, searchGreenhouseBoards } from './hub/greenhouse';
+import { LeverBoardStore, searchLeverBoards } from './hub/lever';
 
 const config = loadConfig();
 const startedAt = Date.now();
@@ -104,6 +105,7 @@ const projectHub = new HubStore(join(config.dataDir, 'projecthub', 'state.json')
 projectHub.ensureJobSearchTeam();
 const jobStore = new JobStore(join(config.dataDir, 'projecthub', 'jobs.json'));
 const greenhouseBoards = new GreenhouseBoardStore(join(config.dataDir, 'projecthub', 'greenhouse-boards.json'));
+const leverBoards = new LeverBoardStore(join(config.dataDir, 'projecthub', 'lever-boards.json'));
 const browserManager = new BrowserManager({ profileDir: join(config.dataDir, 'projecthub', 'browser-profile'), logFile: join(config.dataDir, 'projecthub', 'navigation.jsonl') });
 const providerCredentials = new ProviderCredentials(join(config.dataDir, 'projecthub', 'provider-credentials.json'));
 const modelRouter = new ModelRouter(join(config.dataDir, 'projecthub', 'router.json'), fetch, process.env, providerCredentials);
@@ -445,7 +447,7 @@ const taskRuntime = new TaskRuntime(join(config.dataDir, 'projecthub', 'executio
     ? Boolean(hubRunner || localAvailable)
     : agent.modelId ? models.some((model) => [agent.modelId, ...(agent.fallbackModelIds ?? [])].includes(model.id) && model.available) : localAvailable;
   const action = async (task: Parameters<typeof runJobAction>[0], agent: Parameters<typeof runJobAction>[1]) =>
-    (await runJobAction(task, agent, { hub: projectHub, jobs: jobStore, profile: profileStore, router: modelRouter, applications: applicationStore, greenhouseBoards })) ??
+    (await runJobAction(task, agent, { hub: projectHub, jobs: jobStore, profile: profileStore, router: modelRouter, applications: applicationStore, greenhouseBoards, leverBoards })) ??
     runCommunicationAction(task, agent, { hub: projectHub, whatsapp: whatsAppStore, apiKey: () => evolutionSettings.apiKey(),
       baseUrl: evolutionSettings.status().baseUrl });
   await dispatchWithLocalFallback(projectHub, hubRunner, local, Date.now(), eligible, action);
@@ -458,6 +460,8 @@ const searchTick = () => { void runScheduledSearch(jobStore).then((ran) => {
   if (ran && jobStore.schedule()?.lastError) log.warn(tr('Pesquisa agendada do ProjetoHUB: {0}', [jobStore.schedule()!.lastError]));
   if (ran && greenhouseBoards.list().length && jobStore.schedule()?.query) void searchGreenhouseBoards(greenhouseBoards, jobStore, jobStore.schedule()!.query)
     .then(() => reconcileJobAnalysis()).catch((error) => log.warn(tr('Pesquisa Greenhouse agendada: {0}', [errMsg(error)])));
+  if (ran && leverBoards.list().length && jobStore.schedule()?.query) void searchLeverBoards(leverBoards, jobStore, jobStore.schedule()!.query)
+    .then(() => reconcileJobAnalysis()).catch((error) => log.warn(tr('Pesquisa Lever agendada: {0}', [errMsg(error)])));
 }).catch((error) => log.warn(tr('Falha na agenda de vagas do ProjetoHUB: {0}', [errMsg(error)]))); };
 searchTick();
 const jobSearchTimer = setInterval(searchTick, 60_000);
@@ -537,7 +541,7 @@ server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
-    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher, backupManager, windowsStartup, evolutionSettings, webhookListener, providerCredentials, taskRuntime, greenhouseBoards) && !api(req, res, url)) fallback(req, res, url);
+    if (!handleHubRoute(req, res, url, projectHub, jobStore, fetch, browserManager, modelRouter, applicationStore, profileStore, whatsAppStore, mcpKeys, ngrokManager, connectionSession, connectionPublisher, backupManager, windowsStartup, evolutionSettings, webhookListener, providerCredentials, taskRuntime, greenhouseBoards, leverBoards) && !api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(tr('Erro ao responder {0} {1}: {2}', [req.method, url.pathname, errMsg(err)]));
     if (!res.headersSent) sendJson(res, 500, { error: tr('erro interno') });

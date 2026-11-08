@@ -7,6 +7,7 @@ import { afterEach, expect, it } from 'vitest';
 import { HubStore } from './store';
 import { handleHubRoute } from './http';
 import { GreenhouseBoardStore } from './greenhouse';
+import { LeverBoardStore } from './lever';
 import { JobStore, searchRemotive } from './jobs';
 import { BrowserManager } from './browser';
 import { ApplicationStore } from './applications';
@@ -402,6 +403,37 @@ it('registers and searches an official Greenhouse board through the local HUD AP
     expect((await (await fetch(base + '/api/hub/jobs')).json())[0]).toMatchObject({ source: 'Greenhouse', sourceId: 'empresa:123' });
     expect((await fetch(base + '/api/hub/jobs/greenhouse/boards/empresa', { method: 'DELETE' })).status).toBe(200);
     expect(new GreenhouseBoardStore(join(dir, 'greenhouse-boards.json')).list()).toEqual([]);
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+it('registers and searches an official Lever site through the local HUD API', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'projecthub-http-lever-')); dirs.push(dir);
+  const agents = new HubStore(join(dir, 'state.json'));
+  const jobs = new JobStore(join(dir, 'jobs.json'));
+  const boards = new LeverBoardStore(join(dir, 'lever-boards.json'));
+  const source = async (url: URL | RequestInfo) => new Response(JSON.stringify(/limit=1(?:&|$)/.test(String(url)) ? [] : [{
+    id: 'abc', text: 'Assistente', hostedUrl: 'https://jobs.lever.co/empresa/abc',
+    categories: { location: 'Brasil' }, workplaceType: 'remote', descriptionPlain: 'Atendimento',
+  }]), { status: 200 });
+  const server = http.createServer((req, res) => {
+    const args: Parameters<typeof handleHubRoute> = [req, res, new URL(req.url!, 'http://localhost'), agents, jobs, source as typeof fetch];
+    args[22] = boards;
+    handleHubRoute(...args);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
+    const base = `http://127.0.0.1:${address.port}`;
+    const post = (path: string, body: unknown) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await post('/api/hub/jobs/lever/boards', { url: 'https://evil.example/empresa', company: 'Empresa' })).status).toBe(400);
+    expect((await post('/api/hub/jobs/lever/boards', { url: 'https://jobs.lever.co/empresa', company: 'Empresa' })).status).toBe(201);
+    expect(await (await fetch(base + '/api/hub/jobs/lever/boards')).json()).toMatchObject([{ site: 'empresa', company: 'Empresa' }]);
+    const search = await post('/api/hub/jobs/lever/search', { query: 'Assistente' });
+    expect(search.status).toBe(200);
+    expect((await search.json()).added).toBe(1);
+    expect((await (await fetch(base + '/api/hub/jobs')).json())[0]).toMatchObject({ source: 'Lever', sourceId: 'global:empresa:abc' });
+    expect((await fetch(base + '/api/hub/jobs/lever/boards/global/empresa', { method: 'DELETE' })).status).toBe(200);
+    expect(new LeverBoardStore(join(dir, 'lever-boards.json')).list()).toEqual([]);
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 

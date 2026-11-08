@@ -12,6 +12,7 @@ do meio (0.**3**.0).
 
 ### Adicionado no ProjetoHUB
 
+- Pesquisa nas páginas de carreira Lever escolhidas no painel, com verificação pela API pública, origem preservada, deduplicação e integração à agenda e ao Pesquisador de vagas.
 - Personagens pixel-art dos agentes próprios em uma faixa do escritório, com animações e estados derivados das tarefas persistidas, sem alterar a telemetria do Habblaud World.
 - A tela inicial de escritório vazio é ocultada quando a equipe ProjetoHUB está visível.
 - Fallback para Ollama local também quando o Codex informa ausência de login, autenticação necessária ou token expirado.

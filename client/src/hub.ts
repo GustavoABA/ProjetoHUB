@@ -1,4 +1,5 @@
 import { mountAgentOffice } from './hub-office';
+import { tr } from '../../shared/i18n';
 
 type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string; modelId?: string; fallbackModelIds?: string[];
   monthlyAiRequestLimit?: number; monthlyAiCostLimitUsd?: number; systemKey?: string; status?: 'active' | 'paused' | 'ended' };
@@ -11,6 +12,7 @@ type Job = { id: string; title: string; company: string; location: string; sourc
 type JobSearchPreferences = { title: string; location: string; modes: string[]; seniority: string; desiredSalary: string; area: string;
   requiredTerms: string[]; preferredCompanies: string[]; keywords: string[] };
 type GreenhouseBoard = { token: string; company: string; lastSearchedAt?: string; lastError?: string };
+type LeverBoard = { site: string; region: 'global' | 'eu'; company: string; lastSearchedAt?: string; lastError?: string };
 type Profile = { revision: string; skills: string[]; experience: string[]; education: string[]; confirmedAt?: string };
 type WhatsAppStatus = { instance: string; mainNumber?: string; secondaryNumber?: string; webhookTokenConfigured: boolean; apiKeyConfigured: boolean; webhookPort?: string | null; outbound: { questionId: string; state: string; error?: string }[]; notifications: { id: string; type: string; text: string; state: string; error?: string; createdAt: string }[]; summary: { enabled: boolean; hour: number; lastDate?: string } };
 type EvolutionStatus = { baseUrl: string; apiKeyConfigured: boolean; apiKeySource: 'windows' | 'environment' | null };
@@ -85,8 +87,9 @@ export function mountHubPanel(): void {
     <form id="hub-job-preferences"><label>Cargo<input name="title" maxlength="100" placeholder="Ex.: Assistente"></label><label>Localidade<input name="location" maxlength="100" placeholder="Ex.: São Paulo"></label><label>Modalidade<select name="modes" multiple size="3"><option value="remote">Remoto</option><option value="hybrid">Híbrido</option><option value="onsite">Presencial</option></select></label><label>Experiência<select name="seniority"><option value="any">Qualquer ou não informada</option><option value="junior">Júnior</option><option value="mid">Pleno</option><option value="senior">Sênior</option></select></label><label>Salário desejado<input name="desiredSalary" maxlength="100" placeholder="Ex.: R$ 2.000/mês"></label><label>Área profissional<input name="area" maxlength="100" placeholder="Ex.: Administrativo"></label><label>Requisitos obrigatórios (um por linha)<textarea name="requiredTerms" rows="3"></textarea></label><label>Empresas preferenciais (uma por linha)<textarea name="preferredCompanies" rows="3"></textarea></label><label>Palavras-chave (uma por linha)<textarea name="keywords" rows="3"></textarea></label><button>Salvar preferências</button></form><p id="hub-job-preferences-status"></p>
     <form id="hub-job-form"><label>Pesquisar na Remotive<input name="query" maxlength="100" required placeholder="Ex.: assistente, suporte, júnior"></label><button>Buscar vagas</button></form>
     <h3>Páginas de carreira Greenhouse</h3><form id="hub-greenhouse-form"><label>Endereço público do quadro<input name="url" type="url" required placeholder="https://job-boards.greenhouse.io/empresa"></label><button>Cadastrar página</button></form><ul id="hub-greenhouse-boards"></ul><form id="hub-greenhouse-search"><label>Pesquisar nas páginas cadastradas<input name="query" maxlength="100" required placeholder="Ex.: assistente"></label><button>Buscar nas páginas</button></form>
+    <h3>${tr('Páginas de carreira Lever')}</h3><p>${tr('Cadastre somente páginas públicas escolhidas por você. O nome da empresa é informado por você; a Lever confirma a página e os anúncios, mas não fornece esse nome na API pública.')}</p><form id="hub-lever-form"><label>${tr('Endereço da página Lever')}<input name="url" type="url" required placeholder="https://jobs.lever.co/empresa"></label><label>${tr('Nome da empresa')}<input name="company" maxlength="300" required></label><button>${tr('Cadastrar página Lever')}</button></form><ul id="hub-lever-boards"></ul><form id="hub-lever-search"><label>${tr('Pesquisar nas páginas Lever')}<input name="query" maxlength="100" required placeholder="Ex.: assistente"></label><button>${tr('Buscar na Lever')}</button></form>
     <form id="hub-schedule-form"><label>Pesquisa automática<input name="query" maxlength="100" required placeholder="Termo de pesquisa"></label><label>Intervalo<select name="interval"><option value="6">6 horas</option><option value="12">12 horas</option><option value="24">24 horas</option></select></label><label><span>Ativar</span><input name="enabled" type="checkbox"></label><button>Salvar agenda</button></form><p id="hub-schedule-status"></p>
-    <p>Fontes: Remotive e páginas Greenhouse cadastradas por você. A Remotive tem limite de quatro tentativas por dia; as vagas exibidas levam ao anúncio original.</p>
+    <p>${tr('Fontes: Remotive e páginas Greenhouse ou Lever cadastradas por você. A Remotive tem limite de quatro tentativas por dia; as vagas exibidas levam ao anúncio original.')}</p>
     <h3>Candidaturas</h3><p>Respostas inseridas aqui devem ser confirmadas por você. Abra a página da vaga no navegador abaixo, faça login e acesse o formulário. O preparo tenta preencher campos com os mesmos rótulos das respostas. Revise tudo antes de autorizar e enviar. O sistema só marca como enviada quando a confirmação aparece na página.</p>
     <form id="hub-application-form"><label>Vaga<select name="job" required></select></label><button>Preparar candidatura</button></form><p>Na candidatura, escolha a aba do formulário e use “Inspecionar campos” para pedir dados obrigatórios ainda não confirmados. Perguntas podem seguir pelo WhatsApp quando o canal estiver configurado. Confira campos de arquivo, seleção e senha manualmente.</p><ul id="hub-applications"></ul>
     <h3>Navegador</h3><div><button type="button" data-browser-visible>Abrir visível</button> <button type="button" data-browser-headless>Abrir em segundo plano</button> <button type="button" data-browser-manual>Assumir controle</button> <button type="button" data-browser-stop>Fechar</button></div>
@@ -116,6 +119,8 @@ export function mountHubPanel(): void {
   const jobPreferencesForm = panel.querySelector('#hub-job-preferences') as HTMLFormElement;
   const greenhouseForm = panel.querySelector('#hub-greenhouse-form') as HTMLFormElement;
   const greenhouseSearch = panel.querySelector('#hub-greenhouse-search') as HTMLFormElement;
+  const leverForm = panel.querySelector('#hub-lever-form') as HTMLFormElement;
+  const leverSearch = panel.querySelector('#hub-lever-search') as HTMLFormElement;
   const scheduleForm = panel.querySelector('#hub-schedule-form') as HTMLFormElement;
   const browserForm = panel.querySelector('#hub-browser-form') as HTMLFormElement;
   const modelForm = panel.querySelector('#hub-model-form') as HTMLFormElement;
@@ -167,14 +172,14 @@ export function mountHubPanel(): void {
     for (const item of taskJobSelect.options) item.disabled = evaluator && item.dataset.analyzed !== 'true';
     if (taskJobSelect.selectedOptions[0]?.disabled) taskJobSelect.value = [...taskJobSelect.options].find((item) => !item.disabled)?.value ?? '';
     (panel.querySelector('#hub-task-hint') as HTMLElement).textContent = researcher
-      ? 'Pesquisador de vagas: informe apenas o termo de busca. A consulta usa a Remotive e as páginas Greenhouse cadastradas, registrando somente anúncios retornados pelas fontes.'
+      ? tr('Pesquisador de vagas: informe apenas o termo de busca. A consulta usa a Remotive e as páginas Greenhouse e Lever cadastradas, registrando somente anúncios retornados pelas fontes.')
       : analyst ? 'Analista de requisitos: escolha uma vaga salva. A extração usa o modelo escolhido no agente ou Ollama local e confere cada requisito no anúncio.'
         : evaluator ? 'Avaliador: escolha uma vaga já analisada e confirme seu perfil profissional. A comparação usa apenas dados confirmados e não chama modelo.'
           : specialist ? 'Especialista em candidaturas: escolha uma vaga salva. A tarefa cria somente um rascunho; respostas e envio exigem sua revisão e aprovação.' : '';
   };
 
   async function refresh(): Promise<void> {
-    const [agents, tasks, execution, questions, whatsapp, evolution, listener, profile, jobs, applications, schedule, browser, router, credentials, mcp, adminSession, backups, windowsStartup, snapshot, health, greenhouseBoards, jobPreferences] = await Promise.all([
+    const [agents, tasks, execution, questions, whatsapp, evolution, listener, profile, jobs, applications, schedule, browser, router, credentials, mcp, adminSession, backups, windowsStartup, snapshot, health, greenhouseBoards, leverBoards, jobPreferences] = await Promise.all([
       api<Agent[]>('/api/hub/agents'), api<Task[]>('/api/hub/tasks'), api<ExecutionStatus>('/api/hub/execution'),
       api<Question[]>('/api/hub/questions'),
       api<WhatsAppStatus>('/api/hub/whatsapp'),
@@ -193,6 +198,7 @@ export function mountHubPanel(): void {
       api<WindowsStartupStatus>('/api/hub/windows/startup'),
       api<{ agents: Session[] }>('/api/snapshot'), api<{ sources: Source[] }>('/api/health'),
       api<GreenhouseBoard[]>('/api/hub/jobs/greenhouse/boards'),
+      api<LeverBoard[]>('/api/hub/jobs/lever/boards'),
       api<JobSearchPreferences>('/api/hub/jobs/preferences'),
     ]);
     office.update(agents, tasks);
@@ -214,6 +220,14 @@ export function mountHubPanel(): void {
       const remove = document.createElement('button'); remove.textContent = 'Remover';
       remove.onclick = () => void api(`/api/hub/jobs/greenhouse/boards/${encodeURIComponent(board.token)}`, undefined, 'DELETE').then(refresh).catch(showError);
       item.append(remove); boardList.append(item);
+    }
+    const leverList = panel.querySelector('#hub-lever-boards')!; leverList.replaceChildren();
+    for (const board of leverBoards) {
+      const item = document.createElement('li');
+      item.textContent = `${board.company} · ${board.region}/${board.site}${board.lastError ? ` · ${tr('erro')}: ${board.lastError}` : board.lastSearchedAt ? ` · ${tr('consultada em')} ${new Date(board.lastSearchedAt).toLocaleString('pt-BR')}` : ` · ${tr('ainda não consultada')}`} `;
+      const remove = document.createElement('button'); remove.textContent = tr('Remover');
+      remove.onclick = () => void api(`/api/hub/jobs/lever/boards/${board.region}/${encodeURIComponent(board.site)}`, undefined, 'DELETE').then(refresh).catch(showError);
+      item.append(remove); leverList.append(item);
     }
     if (!executionForm.contains(document.activeElement)) (executionForm.elements.namedItem('maxConcurrent') as HTMLSelectElement).value = String(execution.maxConcurrent);
     (panel.querySelector('#hub-execution-status') as HTMLElement).textContent = `${execution.active} de ${execution.maxConcurrent} execução(ões) em andamento`;
@@ -599,7 +613,7 @@ export function mountHubPanel(): void {
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
     if (panel.hidden) { void office.poll(); return; }
-    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || panel.querySelector('#hub-tasks')?.contains(document.activeElement) || executionForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || summaryForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || listenerForm.contains(document.activeElement) || webhookForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || jobPreferencesForm.contains(document.activeElement) || greenhouseForm.contains(document.activeElement) || greenhouseSearch.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || panel.querySelector('#hub-models')?.contains(document.activeElement) || credentialForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || panel.querySelector('#hub-tasks')?.contains(document.activeElement) || executionForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || summaryForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || listenerForm.contains(document.activeElement) || webhookForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || jobPreferencesForm.contains(document.activeElement) || greenhouseForm.contains(document.activeElement) || greenhouseSearch.contains(document.activeElement) || leverForm.contains(document.activeElement) || leverSearch.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || panel.querySelector('#hub-models')?.contains(document.activeElement) || credentialForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
@@ -724,6 +738,12 @@ export function mountHubPanel(): void {
   greenhouseSearch.onsubmit = (event) => { event.preventDefault(); const data = new FormData(greenhouseSearch); message.textContent = 'Consultando páginas de carreira...';
     void api<{ added: number; errors: { token: string; error: string }[] }>('/api/hub/jobs/greenhouse/search', { query: data.get('query') })
       .then((result) => { message.textContent = `${result.added} vaga(s) nova(s) registrada(s).${result.errors.length ? ` ${result.errors.length} página(s) com erro.` : ''}`; return refresh(); }).catch(showError); };
+  leverForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(leverForm);
+    void api('/api/hub/jobs/lever/boards', { url: data.get('url'), company: data.get('company') })
+      .then(() => { leverForm.reset(); message.textContent = tr('Página Lever cadastrada.'); return refresh(); }).catch(showError); };
+  leverSearch.onsubmit = (event) => { event.preventDefault(); const data = new FormData(leverSearch); message.textContent = tr('Consultando páginas Lever...');
+    void api<{ added: number; errors: { site: string; error: string }[] }>('/api/hub/jobs/lever/search', { query: data.get('query') })
+      .then((result) => { message.textContent = tr('{0} vaga(s) nova(s) registrada(s). {1} página(s) com erro.', [result.added, result.errors.length]); return refresh(); }).catch(showError); };
   scheduleForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(scheduleForm);
     void api('/api/hub/jobs/schedule', { query: data.get('query'), intervalHours: Number(data.get('interval')), enabled: data.has('enabled') }, 'PUT')
       .then(() => { message.textContent = 'Agenda salva.'; return refresh(); }).catch(showError); };

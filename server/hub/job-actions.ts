@@ -5,6 +5,7 @@ import type { ModelRouter } from './router';
 import type { ApplicationStore } from './applications';
 import { analyzeJob, scoreJob } from './analysis';
 import { searchGreenhouseBoards, type GreenhouseBoardStore } from './greenhouse';
+import { searchLeverBoards, type LeverBoardStore } from './lever';
 import { reconcileApplicationAnswers } from './application-answers';
 
 export interface JobActionDeps {
@@ -15,6 +16,7 @@ export interface JobActionDeps {
   applications?: ApplicationStore;
   fetcher?: typeof fetch;
   greenhouseBoards?: GreenhouseBoardStore;
+  leverBoards?: LeverBoardStore;
 }
 
 /** Assign each saved, unanalysed listing once. Existing and cancelled tasks remain authoritative. */
@@ -64,6 +66,13 @@ export async function runJobAction(task: HubTask, agent: HubAgent, deps: JobActi
         results.push(`Greenhouse: ${found.added} vaga(s) nova(s)`);
         errors.push(...found.errors.map(({ token, error }) => `Greenhouse ${token}: ${error}`));
       } catch (error) { errors.push(`Greenhouse: ${error instanceof Error ? error.message : 'falha de consulta'}`); }
+    }
+    if (deps.leverBoards?.list().length) {
+      try {
+        const found = await searchLeverBoards(deps.leverBoards, deps.jobs, task.instruction, deps.fetcher ?? fetch);
+        results.push(`Lever: ${found.added} vaga(s) nova(s)`);
+        errors.push(...found.errors.map(({ site, error }) => `Lever ${site}: ${error}`));
+      } catch (error) { errors.push(`Lever: ${error instanceof Error ? error.message : 'falha de consulta'}`); }
     }
     if (!results.length) throw new Error(errors.join('; '));
     reconcileAnalysisTasks(deps.hub, deps.jobs);

@@ -5,7 +5,7 @@ import { evaluateJobPreferences, validateJobPreferences, type JobSearchPreferenc
 
 export interface JobListing {
   id: string;
-  source: 'Remotive' | 'Greenhouse';
+  source: 'Remotive' | 'Greenhouse' | 'Lever';
   sourceId: string;
   company: string;
   title: string;
