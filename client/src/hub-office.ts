@@ -31,6 +31,7 @@ export function agentActivity(agent: OfficeAgent, tasks: OfficeTask[]): Activity
 const css = `
 #hub-office{position:fixed;left:12px;bottom:12px;z-index:35;max-width:min(720px,calc(100vw - 24px));background:#171a27e8;border:2px solid #a697e2;box-shadow:0 5px 22px #0008;color:#fff;padding:6px;font:13px 'Pixelify Sans',sans-serif}
 #hub-office[hidden]{display:none}#hub-office-header{font-weight:700;margin:2px 4px 5px}#hub-office-crew{display:flex;gap:5px;overflow-x:auto;max-height:112px}
+body:has(#hub-office:not([hidden])) .ui-empty{display:none}
 .hub-office-agent{display:flex;flex:0 0 103px;align-items:center;flex-direction:column;background:#262a3a;border:1px solid #626d8d;color:#fff;cursor:pointer;padding:3px;min-height:91px;font:12px 'Pixelify Sans',sans-serif}
 .hub-office-agent canvas{width:36px;height:51px;image-rendering:pixelated}.hub-office-agent strong,.hub-office-agent small{display:block;max-width:98px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .hub-office-agent[data-tone=busy]{border-color:#70d8b1}.hub-office-agent[data-tone=waiting]{border-color:#f1cf75}.hub-office-agent[data-tone=done]{border-color:#88c6ff}.hub-office-agent[data-tone=error]{border-color:#ee8d9c}.hub-office-agent[data-tone=muted]{opacity:.65}
