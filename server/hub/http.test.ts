@@ -471,6 +471,12 @@ it('links an application field to a question and applies the answered value thro
     expect(answered.status).toBe(200);
     expect((await answered.json()).appliedAt).toBeTruthy();
     expect(applications.get(app.id)?.answers).toEqual({ Disponibilidade: 'Imediata' });
+    const secondTask = hub.createTask({ agentId: agent.id, instruction: 'Aguardar dado opcional' });
+    const secondQuestionResponse = await post('/api/hub/questions', { taskId: secondTask.id, text: 'Pode informar outro dado?' });
+    const secondQuestion = await secondQuestionResponse.json();
+    expect((await post(`/api/hub/questions/${secondQuestion.id}/cancel`, {})).status).toBe(200);
+    expect(hub.listTasks().find((item) => item.id === secondTask.id)?.status).toBe('paused');
+    expect((await post(`/api/hub/questions/${secondQuestion.id}/cancel`, {})).status).toBe(400);
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 

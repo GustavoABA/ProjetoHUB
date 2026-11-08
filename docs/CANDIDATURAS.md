@@ -13,6 +13,8 @@ O escritório guarda uma candidatura por vaga encontrada, usando o identificador
 
 Enquanto houver pergunta pendente vinculada à candidatura, o envio final é bloqueado na API e no painel, mesmo que o estado anterior ainda apareça como aprovado. Se a confirmação não aparecer, o estado será `submission_uncertain`. O sistema não repetirá o clique. Verifique o portal e, se a confirmação estiver presente, use **Verificar confirmação na aba**. Após queda do processo durante `submitting`, a recuperação também usa `submission_uncertain`. Uma candidatura `approved` ainda não foi enviada; `submitted` significa confirmação observada na página selecionada, não garantia de recebimento por e-mail ou de avaliação pela empresa.
 
+O botão **Cancelar pergunta** encerra somente a tarefa daquele campo. A pergunta cancelada não será enviada posteriormente pelo comunicador. Revise e preencha manualmente o campo no portal antes de qualquer envio. Cancelar uma pergunta geral pausa sua tarefa, que pode ser retomada pelo controle de tarefas.
+
 CAPTCHA, login, campos não acessíveis por rótulo e páginas fora do fluxo previsto pedem intervenção humana. A automação não burla verificações de segurança. Use somente sites que permitam essa forma de interação. A captura pode conter dados pessoais e fica em `<dataDir>/projecthub/application-evidence`; não a publique. A proteção em repouso no Windows ainda precisa de melhorias.
 
 ## Verificação realizada

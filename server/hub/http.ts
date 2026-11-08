@@ -286,9 +286,10 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
-  const questionAction = /^\/api\/hub\/questions\/([0-9a-f-]+)\/answer$/.exec(path);
+  const questionAction = /^\/api\/hub\/questions\/([0-9a-f-]+)\/(answer|cancel)$/.exec(path);
   if (questionAction) {
     if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });
+    else if (questionAction[2] === 'cancel') { req.resume(); try { sendJson(res, 200, store.cancelQuestion(questionAction[1])); } catch (error) { fail(res, error); } }
     else void readJson(req).then((raw) => {
       store.answerQuestion(questionAction[1], string(record(raw).answer, 'resposta'));
       if (applications) reconcileApplicationAnswers(store, applications);

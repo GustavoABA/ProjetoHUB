@@ -360,6 +360,17 @@ export class HubStore {
     this.save(); return structuredClone(question);
   }
 
+  cancelQuestion(id: string): HubQuestion {
+    const question = this.state.questions!.find((item) => item.id === id);
+    if (!question || question.state !== 'pending') throw new Error('Pergunta pendente não encontrada');
+    const task = this.state.tasks.find((item) => item.id === question.taskId);
+    if (!task || task.status !== 'waiting_input') throw new Error('Tarefa relacionada não está aguardando resposta');
+    question.state = 'cancelled';
+    task.status = task.instruction.startsWith('application-field:') ? 'cancelled' : 'paused';
+    task.updatedAt = new Date().toISOString();
+    this.save(); return structuredClone(question);
+  }
+
   markQuestionApplied(id: string): HubQuestion {
     const question = this.state.questions!.find((item) => item.id === id);
     if (!question || question.state !== 'answered' || !question.applicationId || !question.fieldName) throw new Error('Pergunta de candidatura respondida não encontrada');

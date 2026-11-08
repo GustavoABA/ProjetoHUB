@@ -471,6 +471,9 @@ export function mountHubPanel(): void {
         const button = document.createElement('button'); button.textContent = 'Responder'; form.append(input, button);
         form.onsubmit = (event) => { event.preventDefault(); void api(`/api/hub/questions/${question.id}/answer`, { answer: input.value }).then(refresh).catch(showError); };
         li.append(form);
+        const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Cancelar pergunta';
+        cancel.onclick = () => void api(`/api/hub/questions/${question.id}/cancel`, {}).then(refresh).catch(showError);
+        li.append(cancel);
         const outbound = whatsapp.outbound.find((item) => item.questionId === question.id);
         if (outbound) { const status = document.createElement('small'); status.textContent = ` · WhatsApp: ${outbound.state === 'accepted' ? 'aceito pela Evolution; entrega não confirmada' : outbound.state === 'uncertain' ? 'resultado incerto; revisar antes de reenviar' : outbound.state}`; li.append(status); }
         else if (whatsapp.mainNumber && whatsapp.secondaryNumber && whatsapp.apiKeyConfigured) {

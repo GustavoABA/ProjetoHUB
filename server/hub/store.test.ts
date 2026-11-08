@@ -24,6 +24,19 @@ it('persists agents and tasks across restart, without inventing execution', () =
   expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(1);
 });
 
+it('cancels a pending question without resuming its task or affecting another task', () => {
+  const file = fixture(); const store = new HubStore(file);
+  const agent = store.createAgent({ name: 'Candidaturas', objective: 'Preparar' });
+  const task = store.createTask({ agentId: agent.id, instruction: 'application-field:example:Disponibilidade' });
+  const other = store.createTask({ agentId: agent.id, instruction: 'Outra tarefa' });
+  const question = store.askQuestion({ taskId: task.id, text: 'Qual a disponibilidade?', applicationId: 'app-1', fieldName: 'Disponibilidade' });
+  expect(store.cancelQuestion(question.id)).toMatchObject({ id: question.id, state: 'cancelled' });
+  expect(new HubStore(file).listTasks().find((item) => item.id === task.id)?.status).toBe('cancelled');
+  expect(store.listTasks().find((item) => item.id === other.id)?.status).toBe('unassigned');
+  expect(() => store.answerQuestion(question.id, 'Imediata')).toThrow('já respondida');
+  expect(() => store.cancelQuestion(question.id)).toThrow('pendente');
+});
+
 it('persists editable monthly AI limits for an agent and rejects invalid values', () => {
   const file = fixture(); const store = new HubStore(file);
   const agent = store.createAgent({ name: 'Triagem', objective: 'Analisar', monthlyAiRequestLimit: 12,

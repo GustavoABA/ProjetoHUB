@@ -79,6 +79,17 @@ it('does not send a question answered before the communicator task executes', as
   expect(send).not.toHaveBeenCalled();
 });
 
+it('does not send a question cancelled before the communicator task executes', async () => {
+  const { hub, whatsapp, question, communicator } = fixture();
+  whatsapp.configure({ mainNumber: '5511999999999', secondaryNumber: '5511888888888' });
+  reconcileQuestionTasks(hub, whatsapp, true);
+  hub.cancelQuestion(question.id);
+  const send = vi.fn<typeof fetch>();
+  const task = hub.listTasks().find((item) => item.agentId === communicator.id)!;
+  expect(await runCommunicationAction(task, communicator, { hub, whatsapp, apiKey: async () => 'test-key', fetcher: send })).toContain('cancelada');
+  expect(send).not.toHaveBeenCalled();
+});
+
 it('persists new vacancy and application events, delegates each once, and does not replay history', async () => {
   const { dir, hub, whatsapp, communicator } = fixture();
   const jobs = new JobStore(join(dir, 'jobs.json'));
