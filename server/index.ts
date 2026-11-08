@@ -129,6 +129,7 @@ const whatsappReady = () => {
 };
 const reconcileCommunication = () => { try {
   whatsAppStore.reconcileEvents(jobStore.list(), applicationStore.list(), projectHub.listTasks());
+  whatsAppStore.reconcileDailySummary(new Date(), jobStore.list(), applicationStore.list(), projectHub.listTasks());
   reconcileQuestionTasks(projectHub, whatsAppStore, whatsappReady());
 }
   catch (error) { log.warn(`Falha ao delegar comunicação WhatsApp: ${errMsg(error)}`); } };

@@ -123,6 +123,16 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
+  if (path === '/api/hub/whatsapp/summary') {
+    if (!whatsapp) sendJson(res, 503, { error: 'WhatsApp indisponível' });
+    else if (req.method === 'GET') sendJson(res, 200, whatsapp.status().summary);
+    else if (req.method === 'PUT') void readJson(req).then((raw) => {
+      const body = record(raw);
+      sendJson(res, 200, whatsapp.configureSummary({ enabled: body.enabled as boolean, hour: body.hour as number }).summary);
+    }).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
   if (path === '/api/hub/whatsapp/settings') {
     if (!evolution) sendJson(res, 503, { error: 'Configuração Evolution indisponível' });
     else if (req.method === 'GET') sendJson(res, 200, evolution.status());

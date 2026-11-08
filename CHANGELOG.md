@@ -23,6 +23,7 @@ do meio (0.**3**.0).
 - Edição, pausa, retomada e encerramento de agentes; tarefas não entregues são canceladas ao encerrar.
 - Perfil profissional confirmado e análise de requisitos por trechos literais do anúncio, com pontuação de correspondência textual quando há perfil confirmado.
 - Canal WhatsApp local com instância lógica própria, webhook autenticado, validação de remetente, deduplicação, histórico de saída e retomada da tarefa relacionada.
+- Resumo diário do WhatsApp com horário editável no HUD, contagens persistidas e substituição de resumos antigos ainda pendentes.
 - Detecção automática de modelo Ollama local para tarefas textuais quando o Codex não estiver disponível.
 - Backups locais verificáveis com restauração agendada pelo painel.
 - Inicializador `INICIAR-PROJETOHUB.cmd` e opção no painel para iniciar junto com o Windows.

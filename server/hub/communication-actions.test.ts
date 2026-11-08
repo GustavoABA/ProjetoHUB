@@ -182,3 +182,35 @@ it('queues one durable error notice for a failed task without replaying historic
   restored.reconcileEvents([], [], hub.listTasks());
   expect(restored.status().notifications).toHaveLength(1);
 });
+
+it('queues one daily summary at the configured local hour using only persisted outcomes', async () => {
+  const { dir, hub, whatsapp } = fixture();
+  const jobs = new JobStore(join(dir, 'jobs.json'));
+  const applications = new ApplicationStore(join(dir, 'applications.json'));
+  const now = new Date(); now.setHours(18, 0, 0, 0);
+  jobs.addListings([{ id: 'summary-job', source: 'Remotive', sourceId: 'summary-1', company: 'Empresa', title: 'Auxiliar',
+    location: 'Remota', mode: 'remote', description: 'Descrição', requirements: [], originalUrl: 'https://remotive.com/remote-jobs/example',
+    discoveredAt: now.toISOString(), compatibility: null, justification: 'Pendente', applicationStatus: 'not_started' }]);
+  applications.create({ jobId: 'summary-job', source: 'Remotive', sourceId: 'summary-1',
+    originalUrl: 'https://remotive.com/remote-jobs/example', title: 'Auxiliar', company: 'Empresa' });
+  expect(whatsapp.reconcileDailySummary(now, jobs.list(), applications.list(), hub.listTasks())).toBe(0);
+  whatsapp.configure({ mainNumber: '5511999999999', secondaryNumber: '5511888888888' });
+  whatsapp.configureSummary({ enabled: true, hour: 18 });
+  const before = new Date(now); before.setHours(17);
+  expect(whatsapp.reconcileDailySummary(before, jobs.list(), applications.list(), hub.listTasks())).toBe(0);
+  expect(whatsapp.reconcileDailySummary(now, jobs.list(), applications.list(), hub.listTasks())).toBe(1);
+  expect(whatsapp.status().notifications[0]).toMatchObject({ type: 'daily_summary', state: 'pending' });
+  expect(whatsapp.status().notifications[0].text).toContain('Vagas novas: 1');
+  expect(whatsapp.status().notifications[0].text).toContain('Candidaturas confirmadas: 0');
+  const restored = new WhatsAppStore(join(dir, 'whatsapp.json'));
+  expect(restored.reconcileDailySummary(now, jobs.list(), applications.list(), hub.listTasks())).toBe(0);
+  const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+  expect(restored.reconcileDailySummary(tomorrow, jobs.list(), applications.list(), hub.listTasks())).toBe(1);
+  expect(restored.status().notifications[0].state).toBe('superseded');
+  expect(restored.status().notifications[1].text).toContain('Vagas novas: 0');
+  const communicator = hub.listAgents().find((agent) => agent.systemKey === 'job-search/whatsapp')!;
+  const oldTask = hub.createTask({ agentId: communicator.id, instruction: `notification:${restored.status().notifications[0].id}` });
+  const send = vi.fn<typeof fetch>();
+  expect(await runCommunicationAction(oldTask, communicator, { hub, whatsapp: restored, apiKey: async () => 'test-key', fetcher: send })).toContain('substituído');
+  expect(send).not.toHaveBeenCalled();
+});

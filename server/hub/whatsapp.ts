@@ -9,15 +9,19 @@ const INSTANCE = 'procura-de-emprego';
 const DEFAULT_EVOLUTION_URL = 'http://127.0.0.1:8080';
 type OutboundState = 'sending' | 'accepted' | 'uncertain' | 'failed';
 export interface OutboundMessage { id: string; questionId: string; text: string; state: OutboundState; createdAt: string; updatedAt: string; providerMessageId?: string; error?: string }
-export interface EventNotification { id: string; eventKey: string; type: 'job_found' | 'application_started' | 'approval_needed' | 'submission_started' | 'application_submitted' | 'submission_uncertain' | 'task_error'; text: string; state: 'pending' | OutboundState; createdAt: string; updatedAt: string; providerMessageId?: string; error?: string }
+export interface EventNotification { id: string; eventKey: string; type: 'job_found' | 'application_started' | 'approval_needed' | 'submission_started' | 'application_submitted' | 'submission_uncertain' | 'task_error' | 'daily_summary'; text: string; state: 'pending' | 'superseded' | OutboundState; createdAt: string; updatedAt: string; providerMessageId?: string; error?: string }
 interface InboundMessage { id: string; questionId: string; receivedAt: string }
-interface State { version: 1; instance: typeof INSTANCE; mainNumber?: string; secondaryNumber?: string; webhookTokenHash?: string; inbound: InboundMessage[]; outbound: OutboundMessage[]; observedEvents?: string[]; notifications?: EventNotification[] }
+interface State { version: 1; instance: typeof INSTANCE; mainNumber?: string; secondaryNumber?: string; webhookTokenHash?: string; inbound: InboundMessage[]; outbound: OutboundMessage[]; observedEvents?: string[]; notifications?: EventNotification[]; summary?: { enabled: boolean; hour: number; lastDate?: string } }
 function number(value: string): string {
   if (typeof value !== 'string' || !/^\d{10,15}$/.test(value)) throw new Error('Número deve conter DDI, DDD e número, somente dígitos');
   return value;
 }
 function hash(token: string): Buffer { return createHash('sha256').update(token).digest(); }
 function object(value: unknown): Record<string, unknown> | undefined { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined; }
+function localDate(raw: string | Date): string {
+  const date = raw instanceof Date ? raw : new Date(raw);
+  return Number.isFinite(date.getTime()) ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}` : '';
+}
 
 /** Local logical Evolution instance. Existing Evolution instances are never modified here. */
 export class WhatsAppStore {
@@ -34,7 +38,33 @@ export class WhatsAppStore {
   }
   status() { return { instance: INSTANCE, mainNumber: this.state.mainNumber, secondaryNumber: this.state.secondaryNumber,
     webhookTokenConfigured: Boolean(this.state.webhookTokenHash), inboundCount: this.state.inbound.length, outbound: structuredClone(this.state.outbound),
-    notifications: structuredClone(this.state.notifications ?? []) }; }
+    notifications: structuredClone(this.state.notifications ?? []), summary: structuredClone(this.state.summary ?? { enabled: false, hour: 18 }) }; }
+  configureSummary(input: { enabled: boolean; hour: number }): ReturnType<WhatsAppStore['status']> {
+    if (typeof input.enabled !== 'boolean' || !Number.isSafeInteger(input.hour) || input.hour < 0 || input.hour > 23)
+      throw new Error('Horário do resumo inválido');
+    if (input.enabled && (!this.state.mainNumber || !this.state.secondaryNumber)) throw new Error('Configure os números antes de ativar o resumo');
+    this.state.summary = { enabled: input.enabled, hour: input.hour, ...(this.state.summary?.lastDate ? { lastDate: this.state.summary.lastDate } : {}) };
+    this.save(); return this.status();
+  }
+  reconcileDailySummary(now: Date, jobs: JobListing[], applications: Application[], tasks: HubTask[]): number {
+    const schedule = this.state.summary;
+    if (!schedule?.enabled || now.getHours() < schedule.hour) return 0;
+    const date = localDate(now);
+    if (!date || (schedule.lastDate && schedule.lastDate >= date)) return 0;
+    const jobsFound = jobs.filter((job) => localDate(job.discoveredAt) === date).length;
+    const drafts = applications.filter((app) => localDate(app.createdAt) === date).length;
+    const submitted = applications.filter((app) => app.history.some((entry) => entry.action === 'submitted' && localDate(entry.at) === date)).length;
+    const failed = tasks.filter((task) => task.status === 'failed' && localDate(task.updatedAt) === date && !task.instruction.startsWith('notification:')).length;
+    const nowIso = now.toISOString();
+    this.state.notifications ??= [];
+    for (const item of this.state.notifications) if (item.type === 'daily_summary' && item.state === 'pending') {
+      item.state = 'superseded'; item.updatedAt = nowIso;
+    }
+    this.state.notifications.push({ id: randomUUID(), eventKey: `summary:${date}`, type: 'daily_summary',
+      text: `ProjetoHUB — resumo de ${date}\nVagas novas: ${jobsFound}\nRascunhos criados: ${drafts}\nCandidaturas confirmadas: ${submitted}\nTarefas com erro: ${failed}\nConsulte o painel para os detalhes e links originais.`,
+      state: 'pending', createdAt: nowIso, updatedAt: nowIso });
+    schedule.lastDate = date; this.save(); return 1;
+  }
   /** First reconciliation establishes a baseline so an upgrade cannot send historical vacancies. */
   reconcileEvents(jobs: JobListing[], applications: Application[], tasks: HubTask[] = []): number {
     const events: { key: string; type: EventNotification['type']; text: string }[] = [];
@@ -49,7 +79,7 @@ export class WhatsAppStore {
       if (!type) continue;
       const label = { application_started: 'Rascunho de candidatura criado', approval_needed: 'Candidatura precisa de aprovação',
         submission_started: 'Envio de candidatura iniciado', application_submitted: 'Candidatura confirmada como enviada',
-        submission_uncertain: 'Resultado do envio da candidatura incerto', job_found: 'Nova vaga', task_error: 'Erro em tarefa' }[type];
+        submission_uncertain: 'Resultado do envio da candidatura incerto', job_found: 'Nova vaga', task_error: 'Erro em tarefa', daily_summary: 'Resumo diário' }[type];
       events.push({ key: `application:${app.id}:${index}`, type,
         text: `ProjetoHUB — ${label}\n${app.title.slice(0, 300)} · ${app.company.slice(0, 300)}\nCandidatura: ${app.id}\n${app.originalUrl}` });
     }

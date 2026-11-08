@@ -10,7 +10,7 @@ type JobSearchPreferences = { title: string; location: string; modes: string[]; 
   requiredTerms: string[]; preferredCompanies: string[]; keywords: string[] };
 type GreenhouseBoard = { token: string; company: string; lastSearchedAt?: string; lastError?: string };
 type Profile = { revision: string; skills: string[]; experience: string[]; education: string[]; confirmedAt?: string };
-type WhatsAppStatus = { instance: string; mainNumber?: string; secondaryNumber?: string; webhookTokenConfigured: boolean; apiKeyConfigured: boolean; webhookPort?: string | null; outbound: { questionId: string; state: string; error?: string }[]; notifications: { id: string; type: string; text: string; state: string; error?: string; createdAt: string }[] };
+type WhatsAppStatus = { instance: string; mainNumber?: string; secondaryNumber?: string; webhookTokenConfigured: boolean; apiKeyConfigured: boolean; webhookPort?: string | null; outbound: { questionId: string; state: string; error?: string }[]; notifications: { id: string; type: string; text: string; state: string; error?: string; createdAt: string }[]; summary: { enabled: boolean; hour: number; lastDate?: string } };
 type EvolutionStatus = { baseUrl: string; apiKeyConfigured: boolean; apiKeySource: 'windows' | 'environment' | null };
 type WebhookListenerStatus = { enabled: boolean; port: number; exposeLan: boolean; bind: string; running: boolean; error?: string };
 type EvolutionInstanceResult = { instance: string; created?: boolean; status?: string; qrCode?: string; pairingCode?: string };
@@ -67,6 +67,7 @@ export function mountHubPanel(): void {
     <h3>WhatsApp · Evolution API</h3><p>A instância lógica é procura-de-emprego. Configure os números com DDI e DDD. Com a chave, token e recebimento ativos, perguntas pendentes são enviadas automaticamente; confira o destino antes de salvar.</p>
     <form id="hub-evolution-form"><label>URL da Evolution API<input name="baseUrl" type="url" required placeholder="http://127.0.0.1:8080"></label><label>Chave da Evolution API<input name="apiKey" type="password" autocomplete="new-password" placeholder="Deixe vazio para manter a chave atual"></label><button>Salvar conexão</button></form><button type="button" data-evolution-clear>Remover chave salva neste Windows</button><p id="hub-evolution-status"></p>
     <form id="hub-whatsapp-form"><label>Número principal (destino)<input name="mainNumber" inputmode="numeric" pattern="[0-9]{10,15}" required></label><label>Número secundário (instância)<input name="secondaryNumber" inputmode="numeric" pattern="[0-9]{10,15}" required></label><button>Salvar números</button></form>
+    <form id="hub-whatsapp-summary"><label><span>Enviar resumo diário</span><input name="enabled" type="checkbox"></label><label>Horário no fuso deste computador<select name="hour"></select></label><button>Salvar horário</button></form><p id="hub-whatsapp-summary-status"></p>
     <div><button type="button" data-instance-create>Criar somente procura-de-emprego</button> <button type="button" data-instance-connect>Mostrar QR para parear</button></div><p id="hub-instance-status"></p><img id="hub-instance-qr" alt="QR de pareamento da instância procura-de-emprego" hidden style="max-width:260px;image-rendering:pixelated">
     <form id="hub-listener-form"><label>Porta para receber respostas<input name="port" type="number" min="1" max="65535" required></label><label><span>Ativar recebimento</span><input name="enabled" type="checkbox"></label><label><span>Permitir acesso pela rede local (Evolution em Docker)</span><input name="exposeLan" type="checkbox"></label><button>Salvar recebimento</button></form><p id="hub-listener-status"></p>
     <p id="hub-whatsapp-status"></p><h4>Avisos de vagas e candidaturas</h4><ul id="hub-whatsapp-notifications"></ul><button type="button" data-whatsapp-diagnostics>Verificar Evolution API</button> <button type="button" data-whatsapp-token>Gerar token para configuração manual (invalida o anterior)</button><p id="hub-whatsapp-diagnostics"></p><p id="hub-whatsapp-token"></p>
@@ -101,6 +102,8 @@ export function mountHubPanel(): void {
   const executionForm = panel.querySelector('#hub-execution-form') as HTMLFormElement;
   const questionForm = panel.querySelector('#hub-question-form') as HTMLFormElement;
   const whatsappForm = panel.querySelector('#hub-whatsapp-form') as HTMLFormElement;
+  const summaryForm = panel.querySelector('#hub-whatsapp-summary') as HTMLFormElement;
+  const summaryHour = summaryForm.elements.namedItem('hour') as HTMLSelectElement;
   const evolutionForm = panel.querySelector('#hub-evolution-form') as HTMLFormElement;
   const listenerForm = panel.querySelector('#hub-listener-form') as HTMLFormElement;
   const webhookForm = panel.querySelector('#hub-webhook-form') as HTMLFormElement;
@@ -144,6 +147,7 @@ export function mountHubPanel(): void {
   let providerStatuses: ProviderCredentialStatus = {};
   let confirmedProfileRevision: string | undefined;
   const option = (select: HTMLSelectElement, value: string, label: string) => { const o = document.createElement('option'); o.value = value; o.textContent = label; select.append(o); };
+  for (let hour = 0; hour < 24; hour++) option(summaryHour, String(hour), `${String(hour).padStart(2, '0')}:00`);
   const updateTaskFields = () => {
     const role = agentsSelect.selectedOptions[0]?.dataset.systemKey;
     const researcher = role === 'job-search/researcher';
@@ -239,6 +243,13 @@ export function mountHubPanel(): void {
       (whatsappForm.elements.namedItem('mainNumber') as HTMLInputElement).value = whatsapp.mainNumber ?? '';
       (whatsappForm.elements.namedItem('secondaryNumber') as HTMLInputElement).value = whatsapp.secondaryNumber ?? '';
     }
+    if (!summaryForm.contains(document.activeElement)) {
+      (summaryForm.elements.namedItem('enabled') as HTMLInputElement).checked = whatsapp.summary.enabled;
+      summaryHour.value = String(whatsapp.summary.hour);
+    }
+    (panel.querySelector('#hub-whatsapp-summary-status') as HTMLElement).textContent = whatsapp.summary.enabled
+      ? `Resumo diário ativo às ${String(whatsapp.summary.hour).padStart(2, '0')}:00 no horário deste computador${whatsapp.summary.lastDate ? ` · último dia preparado: ${whatsapp.summary.lastDate}` : ''}.`
+      : 'Resumo diário desligado. Configure os dois números antes de ativar.';
     if (!evolutionForm.contains(document.activeElement)) (evolutionForm.elements.namedItem('baseUrl') as HTMLInputElement).value = evolution.baseUrl;
     if (!listenerForm.contains(document.activeElement)) {
       (listenerForm.elements.namedItem('port') as HTMLInputElement).value = String(listener.port);
@@ -266,8 +277,8 @@ export function mountHubPanel(): void {
     notificationList.replaceChildren();
     const notificationLabels: Record<string, string> = { job_found: 'Nova vaga', application_started: 'Rascunho criado',
       approval_needed: 'Aprovação necessária', submission_started: 'Envio iniciado',
-      application_submitted: 'Envio confirmado', submission_uncertain: 'Envio incerto', task_error: 'Erro em tarefa' };
-    const notificationStates: Record<string, string> = { pending: 'aguardando canal', sending: 'enviando', failed: 'falhou' };
+      application_submitted: 'Envio confirmado', submission_uncertain: 'Envio incerto', task_error: 'Erro em tarefa', daily_summary: 'Resumo diário' };
+    const notificationStates: Record<string, string> = { pending: 'aguardando canal', sending: 'enviando', failed: 'falhou', superseded: 'substituído por resumo mais recente' };
     for (const notification of (whatsapp.notifications ?? []).slice(-20).reverse()) {
       const item = document.createElement('li');
       item.textContent = `${notification.createdAt.slice(0, 16)} · ${notificationLabels[notification.type] ?? notification.type} · ${notification.state === 'accepted' ? 'aceito pela Evolution; entrega não confirmada' : notification.state === 'uncertain' ? 'resultado incerto; conferir na Evolution' : notificationStates[notification.state] ?? notification.state}${notification.error ? ` · ${notification.error}` : ''}\n${notification.text}`;
@@ -583,7 +594,7 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
-    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || panel.querySelector('#hub-tasks')?.contains(document.activeElement) || executionForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || listenerForm.contains(document.activeElement) || webhookForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || jobPreferencesForm.contains(document.activeElement) || greenhouseForm.contains(document.activeElement) || greenhouseSearch.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || panel.querySelector('#hub-models')?.contains(document.activeElement) || credentialForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
+    if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || panel.querySelector('#hub-tasks')?.contains(document.activeElement) || executionForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || summaryForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || listenerForm.contains(document.activeElement) || webhookForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || jobPreferencesForm.contains(document.activeElement) || greenhouseForm.contains(document.activeElement) || greenhouseSearch.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || panel.querySelector('#hub-models')?.contains(document.activeElement) || credentialForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
   agentForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(agentForm); const selected = choices[Number(data.get('session'))];
@@ -612,6 +623,9 @@ export function mountHubPanel(): void {
   whatsappForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(whatsappForm);
     void api('/api/hub/whatsapp', { mainNumber: data.get('mainNumber'), secondaryNumber: data.get('secondaryNumber') }, 'PUT')
       .then(() => { message.textContent = 'Números do WhatsApp salvos neste computador.'; return refresh(); }).catch(showError); };
+  summaryForm.onsubmit = (event) => { event.preventDefault(); const data = new FormData(summaryForm);
+    void api('/api/hub/whatsapp/summary', { enabled: data.has('enabled'), hour: Number(data.get('hour')) }, 'PUT')
+      .then(() => { message.textContent = 'Horário do resumo salvo.'; return refresh(); }).catch(showError); };
   (panel.querySelector('[data-whatsapp-token]') as HTMLButtonElement).onclick = () => void api<{ token: string }>('/api/hub/whatsapp/webhook-token', {}).then(({ token }) => {
     const target = panel.querySelector('#hub-whatsapp-token') as HTMLElement; target.textContent = `Token exibido uma vez: ${token}`;
     return refresh();

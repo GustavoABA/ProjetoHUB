@@ -101,7 +101,7 @@ export function createMcpRequestHandler(deps: McpDependencies): (req: IncomingMe
     tool('consultar_roteador', 'Mostra modelos, disponibilidade de credenciais e uso registrado, sem segredos.', z.object({}), () => deps.router.status());
     tool('consultar_notificacoes_pendentes', 'Mostra perguntas pendentes e avisos WhatsApp ainda não aceitos pela Evolution.', z.object({}),
       () => ({ questions: deps.hub.listQuestions().filter((q) => q.state === 'pending'),
-        whatsappNotifications: deps.whatsapp?.status().notifications.filter((item) => item.state !== 'accepted') ?? [] }));
+        whatsappNotifications: deps.whatsapp?.status().notifications.filter((item) => item.state !== 'accepted' && item.state !== 'superseded') ?? [] }));
     return server;
   }, { legacy: 'stateless' });
   const node = toNodeHandler(handler);

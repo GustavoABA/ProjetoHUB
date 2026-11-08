@@ -38,6 +38,7 @@ export async function runCommunicationAction(task: HubTask, agent: HubAgent, dep
   if (task.instruction.startsWith('notification:')) {
     const notification = deps.whatsapp.status().notifications.find((item) => `notification:${item.id}` === task.instruction);
     if (!notification) throw new Error('Aviso WhatsApp não encontrado');
+    if (notification.state === 'superseded') return 'Resumo substituído por um dia mais recente; nenhum envio iniciado.';
     if (notification.state === 'accepted') return 'Aviso já aceito pela Evolution; entrega ao telefone não confirmada.';
     if (notification.state === 'uncertain' || notification.state === 'sending') throw new Error('Resultado do envio WhatsApp incerto; confira a Evolution antes de outra tentativa');
     if (notification.state === 'failed') throw new Error(`Envio WhatsApp falhou: ${notification.error ?? 'verifique a Evolution'}`);

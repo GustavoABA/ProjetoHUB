@@ -6,7 +6,7 @@ Atualizado em 07/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 
 | Área | Estado comprovado | Limite atual |
 | --- | --- | --- |
-| Build e testes no Windows | `npm test`: 2.046 aprovados, 18 ignorados, nenhum falhou em 192 arquivos; `npm run typecheck` e `npm run build` passaram | Prazo padrão de cada teste aumentado para 15 segundos após timeouts sob carga; Windows 10 especificamente não foi testado |
+| Build e testes no Windows | `npm test`: 2.047 aprovados, 18 ignorados, nenhum falhou em 192 arquivos; `npm run typecheck` e `npm run build` passaram | Prazo padrão de cada teste aumentado para 15 segundos após timeouts sob carga; Windows 10 especificamente não foi testado |
 | Codex e Ollama | Sessão Codex real detectada no escritório; fila Codex verificada por testes; fallback Codex indisponível → Ollama local passou com geração real e resultado persistido | Timeout ambíguo não dispara fallback; execução completa de uma sessão Codex real ainda sem prova ponta a ponta |
 | Agentes e tarefas | Cadastro, subagentes, pausa, retomada, prioridade, fila persistente, concorrência limitada e ações especializadas de vagas | Resultado final de uma instrução aceita pelo Codex não é automaticamente reconciliado |
 | IA roteada | OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter e Ollama têm adaptadores, prioridades, reserva explícita, limites mensais e custos estimados; Ollama real foi verificado | Provedores externos seguem sem credenciais/teste real; custos não são fatura |
@@ -389,4 +389,10 @@ O HUD agora permite cancelar uma pergunta sem responder. A alteração persiste 
 ## Atualização: prazo de teste adequado ao Windows sob carga
 
 `vitest.config.ts` agora concede 15 segundos por teste, mantendo todos os arquivos e casos da suíte. O limite anterior de cinco segundos atingiu testes antigos de geração de certificados, arte e build quando a máquina estava sobrecarregada. Depois do ajuste, o comando padrão `npm test` passou com 2.046 testes aprovados e 18 ignorados em 192 arquivos. Checagem de tipos e build também passaram. Esta mudança altera apenas o prazo de verificação, não o comportamento do escritório nem o número de testes executados.
+
+## Atualização: resumo diário configurável pelo HUD
+
+O usuário pode escolher a hora local do computador e ativar um resumo diário após cadastrar os dois números. O serviço compõe o texto apenas com contagens persistidas do dia: vagas novas, rascunhos criados, candidaturas com transição `submitted` confirmada e tarefas em erro. A verificação ocorre no reconciliador de comunicação a cada 30 segundos; a data do último resumo fica gravada junto ao aviso antes da tentativa de envio, evitando duplicata após reinício. Um resumo antigo ainda pendente é substituído pelo mais recente, sem enviar uma sequência de dias atrasados quando o canal retornar. Um envio incerto continua exigindo revisão humana. O horário segue o fuso do sistema operacional; o resumo vem desligado por padrão. Não houve mensagem real, pois os números continuam para configuração posterior no HUD.
+
+**Verificação desta atualização:** testes de módulo e API cobrem ativação somente após números configurados, horário inválido, persistência, uma entrada por dia, contagens de dados salvos, reinício, substituição de resumo antigo e recusa de envio do resumo substituído. `npm test` passou com 2.047 testes aprovados e 18 ignorados em 192 arquivos; checagem de tipos e build passaram. A tela do HUD não foi inspecionada visualmente nesta rodada.
 

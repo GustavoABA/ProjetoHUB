@@ -538,8 +538,16 @@ it('configures logical WhatsApp numbers and shows a webhook token only once', as
   try {
     const address = server.address(); if (!address || typeof address === 'string') throw new Error('no address');
     const base = `http://127.0.0.1:${address.port}`;
+    const summary = (enabled: boolean, hour: number) => fetch(base + '/api/hub/whatsapp/summary', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled, hour }),
+    });
+    expect((await summary(true, 18)).status).toBe(400);
     const put = await fetch(base + '/api/hub/whatsapp', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mainNumber: '5511999999999', secondaryNumber: '5511888888888' }) });
     expect(put.status).toBe(200);
+    expect((await summary(true, 25)).status).toBe(400);
+    expect((await summary(true, 18)).status).toBe(200);
+    expect(await (await fetch(base + '/api/hub/whatsapp/summary')).json()).toMatchObject({ enabled: true, hour: 18 });
+    expect(new WhatsAppStore(join(dir, 'whatsapp.json')).status().summary).toMatchObject({ enabled: true, hour: 18 });
     const tokenResponse = await fetch(base + '/api/hub/whatsapp/webhook-token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     const { token } = await tokenResponse.json();
     expect(whatsapp.authenticateWebhook(token)).toBe(true);
