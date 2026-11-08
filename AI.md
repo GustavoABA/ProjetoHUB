@@ -1,16 +1,16 @@
 # ProjetoHUB — estado técnico
 
-Atualizado em 07/11/2026. Branch de desenvolvimento: `AI-Working`. Base importada: `marmottajr/habblaud` no commit `faa1a01` (versão 1.0.3). O repositório de destino tinha somente `LICENSE` no commit `3a8ed78`; esse arquivo foi preservado. A licença original do Habblaud está em `LICENSE-Habblaud`. A especificação fornecida está em `docs/projecthub/ESPECIFICACAO-MESTRE.md`. Este arquivo registra a evolução cronológica; trechos marcados como auditoria inicial descrevem aquele momento e não substituem o estado atual abaixo.
+Atualizado em 08/11/2026. Branch de desenvolvimento: `AI-Working`. Base importada: `marmottajr/habblaud` no commit `faa1a01` (versão 1.0.3). O repositório de destino tinha somente `LICENSE` no commit `3a8ed78`; esse arquivo foi preservado. A licença original do Habblaud está em `LICENSE-Habblaud`. A especificação fornecida está em `docs/projecthub/ESPECIFICACAO-MESTRE.md`. Este arquivo registra a evolução cronológica; trechos marcados como auditoria inicial descrevem aquele momento e não substituem o estado atual abaixo.
 
-## Estado atual verificado em 07/11/2026
+## Estado atual verificado em 08/11/2026
 
 | Área | Estado comprovado | Limite atual |
 | --- | --- | --- |
-| Build e testes no Windows | `npm test`: 2.047 aprovados, 18 ignorados, nenhum falhou em 192 arquivos; `npm run typecheck` e `npm run build` passaram | Prazo padrão de cada teste aumentado para 15 segundos após timeouts sob carga; Windows 10 especificamente não foi testado |
-| Codex e Ollama | Sessão Codex real detectada no escritório; fila Codex verificada por testes; fallback Codex indisponível → Ollama local passou com geração real e resultado persistido | Timeout ambíguo não dispara fallback; execução completa de uma sessão Codex real ainda sem prova ponta a ponta |
-| Agentes e tarefas | Cadastro, subagentes, pausa, retomada, prioridade, fila persistente, concorrência limitada e ações especializadas de vagas | Resultado final de uma instrução aceita pelo Codex não é automaticamente reconciliado |
+| Build e testes no Windows | `npm test`: 2.064 aprovados, 20 ignorados, nenhum falhou em 196 arquivos; `npm run typecheck`, `npm run build` e teste optativo do HUD no Edge passaram | Prazo padrão de cada teste aumentado para 15 segundos após timeouts sob carga; Windows 10 especificamente não foi testado |
+| Codex e Ollama | Sessão Codex real detectada no escritório; fila Codex verificada por testes; falhas de envio Codex simuladas acionaram fallback, com geração Ollama real e resultado persistido | Timeout ambíguo não dispara fallback; execução completa de uma sessão Codex real ainda sem prova ponta a ponta |
+| Agentes e tarefas | Cadastro, subagentes, pausa, retomada, prioridade, fila persistente, concorrência limitada, navegação do HUD e personagens com estados de tarefa e aprovação reais | Resultado final de uma instrução aceita pelo Codex não é automaticamente reconciliado; personagem ainda não representa navegação automatizada por agente |
 | IA roteada | OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter e Ollama têm adaptadores, prioridades, reserva explícita, limites mensais e custos estimados; Ollama real foi verificado | Provedores externos seguem sem credenciais/teste real; custos não são fatura |
-| Navegador e candidaturas | Edge real com perfil persistente; inspeção de campos, perguntas vinculadas, preenchimento por rótulo e envio aprovado com evidência passaram em páginas locais | Nenhum envio em portal externo foi realizado; arquivos, menus e quadros internos exigem intervenção |
+| Vagas, navegador e candidaturas | Remotive, páginas Greenhouse e Lever cadastradas; Edge real com perfil persistente; inspeção de campos, perguntas vinculadas, preenchimento por rótulo e envio aprovado com evidência passaram em páginas locais | Nenhum envio em portal externo foi realizado; arquivos, menus e quadros internos exigem intervenção; a busca Lever agendada não teve prova ponta a ponta em empresa real |
 | WhatsApp | Evolution local diagnosticada; envio, webhook, deduplicação e avisos persistentes têm testes com respostas simuladas | Números serão configurados pelo usuário no HUD; nenhuma mensagem real ou pareamento foi testado |
 | MCP e ngrok | MCP local autenticado e consulta remota simulada passaram; publicação do estado `offline` no GitHub verificada | Túnel público e cadastro direto no ChatGPT não foram validados; OAuth compatível ainda pendente |
 
