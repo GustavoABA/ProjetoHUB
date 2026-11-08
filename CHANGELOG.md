@@ -40,6 +40,7 @@ do meio (0.**3**.0).
 
 ### Corrigido no ProjetoHUB
 
+- Prazo padrão dos testes ampliado para 15 segundos, mantendo todos os casos, para suportar operações de certificados e desenho pixel-art sob carga no Windows.
 - O fallback para Ollama local reconhece falha confirmada ao abrir uma sessão Codex e ausência do executável. Timeout ambíguo da fila não duplica a execução.
 - Links de entregas aceitam caminhos locais do Windows e mantêm a rejeição de segredos, travessia de pasta e compartilhamentos remotos.
 

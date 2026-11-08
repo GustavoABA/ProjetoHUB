@@ -6,7 +6,7 @@ Atualizado em 07/11/2026. Branch de desenvolvimento: `AI-Working`. Base importad
 
 | Área | Estado comprovado | Limite atual |
 | --- | --- | --- |
-| Build e testes no Windows | `npx vitest run --maxWorkers=2 --testTimeout=15000`: 2.046 aprovados, 18 ignorados, nenhum falhou em 192 arquivos; `npm run typecheck` e `npm run build` passaram | A execução padrão de `npm test` nesta rodada teve cinco timeouts sob carga; Windows 10 especificamente não foi testado |
+| Build e testes no Windows | `npm test`: 2.046 aprovados, 18 ignorados, nenhum falhou em 192 arquivos; `npm run typecheck` e `npm run build` passaram | Prazo padrão de cada teste aumentado para 15 segundos após timeouts sob carga; Windows 10 especificamente não foi testado |
 | Codex e Ollama | Sessão Codex real detectada no escritório; fila Codex verificada por testes; fallback Codex indisponível → Ollama local passou com geração real e resultado persistido | Timeout ambíguo não dispara fallback; execução completa de uma sessão Codex real ainda sem prova ponta a ponta |
 | Agentes e tarefas | Cadastro, subagentes, pausa, retomada, prioridade, fila persistente, concorrência limitada e ações especializadas de vagas | Resultado final de uma instrução aceita pelo Codex não é automaticamente reconciliado |
 | IA roteada | OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter e Ollama têm adaptadores, prioridades, reserva explícita, limites mensais e custos estimados; Ollama real foi verificado | Provedores externos seguem sem credenciais/teste real; custos não são fatura |
@@ -385,4 +385,8 @@ O reconciliador WhatsApp também identifica tarefas persistidas no estado `faile
 O HUD agora permite cancelar uma pergunta sem responder. A alteração persiste e impede o comunicador de iniciar um envio ainda não feito; uma resposta tardia de WhatsApp é ignorada. A tarefa interna de um campo de candidatura é encerrada, enquanto uma tarefa geral fica pausada para retomada manual. Outras tarefas permanecem intactas. O bloqueio de envio final de candidatura deixa de considerar a pergunta cancelada; o usuário precisa revisar manualmente o campo faltante no portal antes de clicar. O cancelamento local não remove uma mensagem que a Evolution já aceitou.
 
 **Verificação desta atualização:** testes direcionados de store, API e comunicador passaram (43 testes). `npm run typecheck` e `npm run build` passaram. A suíte padrão `npm test` terminou com 2.041 testes aprovados, 18 ignorados e cinco falhas por timeout de 5 segundos em testes de certificados, build, simulação e arte, após forte lentidão do ambiente. A repetição dos quatro arquivos afetados com um worker passou em três; o teste gráfico de piso ainda excedeu 5 segundos. A suíte completa com dois workers e prazo de 15 segundos por teste passou com 2.046 aprovados e 18 ignorados em 192 arquivos. Não alterei testes antigos nem declarei a execução padrão verde nesta rodada.
+
+## Atualização: prazo de teste adequado ao Windows sob carga
+
+`vitest.config.ts` agora concede 15 segundos por teste, mantendo todos os arquivos e casos da suíte. O limite anterior de cinco segundos atingiu testes antigos de geração de certificados, arte e build quando a máquina estava sobrecarregada. Depois do ajuste, o comando padrão `npm test` passou com 2.046 testes aprovados e 18 ignorados em 192 arquivos. Checagem de tipos e build também passaram. Esta mudança altera apenas o prazo de verificação, não o comportamento do escritório nem o número de testes executados.
 

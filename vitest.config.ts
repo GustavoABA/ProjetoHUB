@@ -4,5 +4,6 @@ export default defineConfig({
   test: {
     include: ['server/**/*.test.ts', 'shared/**/*.test.ts', 'client/src/**/*.test.ts'],
     environment: 'node',
+    testTimeout: 15_000,
   },
 });
