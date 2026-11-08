@@ -12,6 +12,7 @@ do meio (0.**3**.0).
 
 ### Adicionado no ProjetoHUB
 
+- Clique no especialista que aguarda aprovação abre diretamente a área de candidaturas para revisão e decisão.
 - Estado visual de aprovação pendente no especialista em candidaturas, derivado de candidaturas persistidas e atualizado no escritório.
 - Navegação do HUD em visões de agentes, tarefas, vagas, candidaturas, navegador e configurações, com retorno ao escritório, teclas de seta e adaptação a janelas estreitas.
 - Pesquisa nas páginas de carreira Lever escolhidas no painel, com verificação pela API pública, origem preservada, deduplicação e integração à agenda e ao Pesquisador de vagas.

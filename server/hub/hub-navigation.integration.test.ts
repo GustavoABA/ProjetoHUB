@@ -47,6 +47,11 @@ it.skipIf(process.env.PROJECTHUB_UI_E2E !== '1')('navigates the real office HUD 
     await page.locator('#projecthub-open').waitFor();
     await expect.poll(() => page.locator('#hub-office-crew .hub-office-agent').filter({ hasText: 'Especialista em candidaturas' }).innerText())
       .toContain('Aguardando permissão');
+    await page.locator('#hub-office-crew .hub-office-agent').filter({ hasText: 'Especialista em candidaturas' }).click();
+    await expect.poll(() => page.locator('#hub-nav [data-view="applications"]').getAttribute('aria-selected')).toBe('true');
+    await expect.poll(() => page.locator('#hub-application-form').isVisible()).toBe(true);
+    await expect.poll(() => page.locator('#hub-applications').innerText()).toContain('Vaga de teste');
+    await page.locator('#hub-nav [data-view="office"]').click();
     await page.locator('#projecthub-open').click();
     await expect.poll(() => page.locator('#hub-nav [data-view]').count()).toBe(7);
     await page.locator('#hub-nav [data-view="jobs"]').click();

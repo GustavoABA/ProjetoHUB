@@ -438,3 +438,11 @@ O personagem do Especialista em candidaturas agora mostra **Aguardando permissã
 
 **Verificação desta atualização:** os testes de lógica foram escritos antes da correção e reproduziram a indicação ausente e a prioridade incorreta da fila. Após a mudança, os sete testes passaram. Um teste com Edge, servidor e dados isolados confirmou que o personagem mostra **Aguardando permissão** para uma candidatura de teste persistida; continuou cobrindo a navegação por abas. `npm test` passou com 2.064 testes aprovados e 20 ignorados em 196 arquivos. Build, checagem de tipos e `git diff --check` passaram.
 
+## Atualização: acesso direto à candidatura pendente
+
+Ao clicar no personagem do Especialista em candidaturas enquanto ele mostra **Aguardando permissão**, o HUD abre na área **Candidaturas**. O rótulo acessível do botão também anuncia essa ação. Nos demais estados, o personagem continua abrindo a área Agentes. A escolha usa o estado de candidatura persistido já consultado pelo escritório; o clique não aprova, preenche nem envia nada.
+
+**Limites:** a faixa aponta para a lista de candidaturas e não seleciona uma candidatura específica quando há várias pendentes. A revisão e a decisão continuam exigindo ação explícita do usuário no painel. O fluxo real pelo WhatsApp ainda depende dos números que o usuário cadastrará no HUD.
+
+**Verificação desta atualização:** um teste com Edge, servidor e candidatura de teste isolada reproduziu a falha anterior e depois confirmou a aba Candidaturas selecionada, o formulário visível e a vaga pendente listada. `npm test` passou com 2.064 testes aprovados e 20 ignorados em 196 arquivos. `npm run typecheck`, `npm run build` e `git diff --check` passaram.
+

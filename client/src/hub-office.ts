@@ -45,7 +45,8 @@ body:has(#hub-office:not([hidden])) .ui-empty{display:none}
 @media(max-width:600px){#hub-office{left:5px;bottom:5px;max-width:calc(100vw - 10px)}.hub-office-agent{flex-basis:85px}.hub-office-agent strong,.hub-office-agent small{max-width:82px}}
 `;
 
-export function mountAgentOffice(worldCanvas: HTMLCanvasElement, panel: HTMLElement, openPanel: () => void): {
+export function mountAgentOffice(worldCanvas: HTMLCanvasElement, panel: HTMLElement,
+  openPanel: (view: 'agents' | 'applications') => void): {
   update: (agents: OfficeAgent[], tasks: OfficeTask[], applications?: OfficeApplication[]) => void;
   poll: () => Promise<void>;
 } {
@@ -78,12 +79,13 @@ export function mountAgentOffice(worldCanvas: HTMLCanvasElement, panel: HTMLElem
     for (const agent of agents) {
       const activity = agentActivity(agent, tasks, applications);
       const button = document.createElement('button'); button.type = 'button'; button.className = 'hub-office-agent'; button.dataset.tone = activity.tone;
-      button.title = `${agent.name} — ${activity.label}. ${tr('Abrir agentes e tarefas')}`;
+      const approval = activity.label === 'Aguardando permissão';
+      button.title = `${agent.name} — ${activity.label}. ${tr(approval ? 'Abrir candidaturas' : 'Abrir agentes e tarefas')}`;
       button.setAttribute('aria-label', button.title);
       const canvas = document.createElement('canvas'); canvas.width = 24; canvas.height = 34;
       const name = document.createElement('strong'); name.textContent = agent.name;
       const status = document.createElement('small'); status.textContent = tr(activity.label);
-      button.append(canvas, name, status); button.onclick = openPanel; crew.append(button);
+      button.append(canvas, name, status); button.onclick = () => openPanel(approval ? 'applications' : 'agents'); crew.append(button);
       current.push({ agent, activity, canvas });
     }
     animate();

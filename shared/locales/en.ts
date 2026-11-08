@@ -130,6 +130,7 @@ export const EN: Readonly<Record<string, string>> = {
   "Agentes do ProjetoHUB": "ProjetoHUB agents",
   "Equipe ProjetoHUB": "ProjetoHUB team",
   "Abrir agentes e tarefas": "Open agents and tasks",
+  "Abrir candidaturas": "Open applications",
   "Encerrado": "Ended",
   "Pesquisando": "Researching",
   "Aguardando Codex": "Waiting for Codex",

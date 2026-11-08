@@ -108,7 +108,10 @@ export function mountHubPanel(): void {
     <p id="projecthub-message" role="status"></p><h3 data-hub-view="agents">Agentes</h3><ul id="hub-agents"></ul><h3 data-hub-view="tasks">Tarefas</h3><ul id="hub-tasks"></ul><h3 data-hub-view="jobs">Vagas encontradas</h3><ul id="hub-jobs"></ul>`;
   document.body.append(open, panel);
   mountHubNavigation(panel, () => (panel.querySelector('[data-close]') as HTMLButtonElement).click());
-  const office = mountAgentOffice(document.getElementById('world') as HTMLCanvasElement, panel, () => open.click());
+  const office = mountAgentOffice(document.getElementById('world') as HTMLCanvasElement, panel, (view) => {
+    open.click();
+    (panel.querySelector(`#hub-nav [data-view="${view}"]`) as HTMLButtonElement).click();
+  });
   const message = panel.querySelector('#projecthub-message') as HTMLElement;
   const agentForm = panel.querySelector('#hub-agent-form') as HTMLFormElement;
   const taskForm = panel.querySelector('#hub-task-form') as HTMLFormElement;
