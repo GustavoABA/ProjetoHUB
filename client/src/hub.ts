@@ -1,6 +1,8 @@
+import { mountAgentOffice } from './hub-office';
+
 type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string; modelId?: string; fallbackModelIds?: string[];
   monthlyAiRequestLimit?: number; monthlyAiCostLimitUsd?: number; systemKey?: string; status?: 'active' | 'paused' | 'ended' };
-type Task = { id: string; agentId: string; instruction: string; priority?: number; status: string; error?: string; result?: string; executionProvider?: string; executionModel?: string; localRetryCount?: number; nextAttemptAt?: string };
+type Task = { id: string; agentId: string; instruction: string; priority?: number; status: string; updatedAt?: string; error?: string; result?: string; executionProvider?: string; executionModel?: string; localRetryCount?: number; nextAttemptAt?: string };
 type ExecutionStatus = { maxConcurrent: number; active: number };
 type Session = { name: string; sessionId: string; account: string; provider: string };
 type Source = { label: string; path: string; provider: string };
@@ -96,6 +98,7 @@ export function mountHubPanel(): void {
     <form id="hub-model-test"><label>Teste do roteador<input name="prompt" maxlength="2000" required placeholder="Escreva uma pergunta"></label><button>Testar modelo</button></form><p id="hub-model-result"></p>
     <p id="projecthub-message" role="status"></p><h3>Agentes</h3><ul id="hub-agents"></ul><h3>Tarefas</h3><ul id="hub-tasks"></ul><h3>Vagas encontradas</h3><ul id="hub-jobs"></ul>`;
   document.body.append(open, panel);
+  const office = mountAgentOffice(document.getElementById('world') as HTMLCanvasElement, panel, () => open.click());
   const message = panel.querySelector('#projecthub-message') as HTMLElement;
   const agentForm = panel.querySelector('#hub-agent-form') as HTMLFormElement;
   const taskForm = panel.querySelector('#hub-task-form') as HTMLFormElement;
@@ -192,6 +195,7 @@ export function mountHubPanel(): void {
       api<GreenhouseBoard[]>('/api/hub/jobs/greenhouse/boards'),
       api<JobSearchPreferences>('/api/hub/jobs/preferences'),
     ]);
+    office.update(agents, tasks);
     if (!jobPreferencesForm.contains(document.activeElement)) {
       for (const name of ['title', 'location', 'desiredSalary', 'area', 'seniority'] as const)
         (jobPreferencesForm.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement).value = jobPreferences[name];
@@ -594,6 +598,7 @@ export function mountHubPanel(): void {
   open.onclick = () => { panel.hidden = false; void refresh().catch(showError); };
   (panel.querySelector('[data-close]') as HTMLButtonElement).onclick = () => { panel.hidden = true; };
   window.setInterval(() => {
+    if (panel.hidden) { void office.poll(); return; }
     if (panel.hidden || agentForm.contains(document.activeElement) || panel.querySelector('#hub-agents')?.contains(document.activeElement) || taskForm.contains(document.activeElement) || panel.querySelector('#hub-tasks')?.contains(document.activeElement) || executionForm.contains(document.activeElement) || questionForm.contains(document.activeElement) || panel.querySelector('#hub-questions')?.contains(document.activeElement) || whatsappForm.contains(document.activeElement) || summaryForm.contains(document.activeElement) || evolutionForm.contains(document.activeElement) || listenerForm.contains(document.activeElement) || webhookForm.contains(document.activeElement) || profileForm.contains(document.activeElement) || applicationForm.contains(document.activeElement) || applicationListContainsActive() || jobForm.contains(document.activeElement) || jobPreferencesForm.contains(document.activeElement) || greenhouseForm.contains(document.activeElement) || greenhouseSearch.contains(document.activeElement) || scheduleForm.contains(document.activeElement) || browserForm.contains(document.activeElement) || modelForm.contains(document.activeElement) || panel.querySelector('#hub-models')?.contains(document.activeElement) || credentialForm.contains(document.activeElement) || modelTest.contains(document.activeElement)) return;
     void refresh().catch(showError);
   }, 5_000);
