@@ -486,3 +486,5 @@ Instruções enviadas à fila Codex agora carregam um ID de tarefa no fim do pro
 
 **Verificação dirigida:** 91 testes direcionados de fila, store, runtime, parser e observador Codex passaram; `npm run typecheck`, `npm run build` e `git diff --check` passaram. A versão foi atualizada para `1.1.0-preview.2` para gerar outro ZIP Windows após o merge em `main`.
 
+**Publicação:** `main` e `AI-Working` receberam o commit `151aeb5`. A [ação de release](https://github.com/GustavoABA/ProjetoHUB/actions/runs/43734520580) terminou com sucesso e a [release `v1.1.0-preview.2`](https://github.com/GustavoABA/ProjetoHUB/releases/tag/v1.1.0-preview.2) contém `ProjetoHUB-v1.1.0-preview.2-win-x64.zip` (61.175.921 bytes). O ZIP foi montado pela ação Windows; não foi aberto novamente nesta rodada. O fluxo Codex real ponta a ponta continua pendente de validação.
+
