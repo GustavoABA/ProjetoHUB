@@ -496,3 +496,5 @@ Um teste com o Codex CLI 0.169.0-alpha.11.1 confirmou que `codex queue --resume`
 
 **Verificação dirigida:** 40 testes aprovados em `server/messages/codex.test.ts` e `server/hub/dispatcher.test.ts`, cinco testes optativos ignorados, `npm run typecheck`, `npm run build` e `git diff --check` passaram. Não foram feitas chamadas pagas a provedores nesta verificação. A versão `1.1.0-preview.3` inclui esta correção.
 
+**Publicação:** o commit `cf1d369` está em `main` e `AI-Working`. A [ação Windows](https://github.com/GustavoABA/ProjetoHUB/actions/runs/43735331617) terminou com sucesso e a [release `v1.1.0-preview.3`](https://github.com/GustavoABA/ProjetoHUB/releases/tag/v1.1.0-preview.3) contém o ZIP `ProjetoHUB-v1.1.0-preview.3-win-x64.zip` (61.179.781 bytes). O novo ZIP não foi aberto localmente; o empacotamento foi confirmado pela ação e pelo ativo publicado.
+
