@@ -4,7 +4,7 @@ import { tr } from '../../shared/i18n';
 
 type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string; modelId?: string; fallbackModelIds?: string[];
   monthlyAiRequestLimit?: number; monthlyAiCostLimitUsd?: number; systemKey?: string; status?: 'active' | 'paused' | 'ended' };
-type Task = { id: string; agentId: string; instruction: string; priority?: number; status: string; updatedAt?: string; error?: string; result?: string; executionProvider?: string; executionModel?: string; localRetryCount?: number; nextAttemptAt?: string; codexQueueId?: string; codexResumeWarning?: string };
+type Task = { id: string; agentId: string; instruction: string; priority?: number; status: string; updatedAt?: string; error?: string; result?: string; executionProvider?: string; executionModel?: string; localRetryCount?: number; nextAttemptAt?: string; codexQueueId?: string; codexResumeWarning?: string; resultRecordedBy?: 'operator' };
 type ExecutionStatus = { maxConcurrent: number; active: number };
 type Session = { name: string; sessionId: string; account: string; provider: string };
 type Source = { label: string; path: string; provider: string };
@@ -498,7 +498,16 @@ export function mountHubPanel(): void {
         };
         li.append(retry);
       }
-      if (task.result) { const detail = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = task.executionProvider ? `Resposta do ${task.executionProvider} (${task.executionModel ?? 'modelo não informado'})` : 'Resultado da ação'; const output = document.createElement('pre'); output.textContent = task.result; output.style.whiteSpace = 'pre-wrap'; detail.append(summary, output); li.append(detail); }
+      if (task.status === 'sent') {
+        const register = document.createElement('button'); register.textContent = tr('Registrar resultado verificado');
+        register.onclick = () => {
+          const result = window.prompt(tr('Cole a resposta final real do Codex após conferir a sessão. Este registro manual marcará a tarefa como concluída.'));
+          if (result === null) return;
+          void api(`/api/hub/tasks/${task.id}/codex-result`, { result }).then(refresh).catch(showError);
+        };
+        li.append(register);
+      }
+      if (task.result) { const detail = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = task.resultRecordedBy === 'operator' ? tr('Resultado do Codex registrado manualmente') : task.executionProvider ? `Resposta do ${task.executionProvider} (${task.executionModel ?? 'modelo não informado'})` : 'Resultado da ação'; const output = document.createElement('pre'); output.textContent = task.result; output.style.whiteSpace = 'pre-wrap'; detail.append(summary, output); li.append(detail); }
       taskList.append(li);
     }
     const questionList = panel.querySelector('#hub-questions')!; questionList.replaceChildren();

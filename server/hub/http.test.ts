@@ -326,6 +326,12 @@ it('creates and lists agents and tasks over local HTTP', async () => {
       body: JSON.stringify({ monthlyAiRequestLimit: 5, monthlyAiCostLimitUsd: null }) });
     expect(await limits.json()).toMatchObject({ monthlyAiRequestLimit: 5 });
     expect(store.agent(agent.id)?.monthlyAiCostLimitUsd).toBeUndefined();
+    const codexAgent = store.createAgent({ name: 'Codex', objective: 'Responder', codexThread: '12345678-1234-1234-1234-123456789012', codexHome: 'C:/codex' });
+    const codexTask = store.createTask({ agentId: codexAgent.id, instruction: 'Responder' });
+    store.beginCodexDispatch(codexTask.id, codexAgent.codexThread!);
+    store.acceptCodexQueue(codexTask.id);
+    expect((await post(`/api/hub/tasks/${codexTask.id}/codex-result`, { result: 'Resposta conferida' })).status).toBe(200);
+    expect(new HubStore(join(dir, 'state.json')).listTasks().find((item) => item.id === codexTask.id)).toMatchObject({ status: 'done', resultRecordedBy: 'operator' });
     expect((await post(`/api/hub/agents/${agent.id}/status`, { status: 'paused' })).status).toBe(200);
     expect((await post(`/api/hub/agents/${agent.id}/status`, { status: 'active' })).status).toBe(200);
     expect((await post(`/api/hub/agents/${agent.id}/status`, { status: 'ended' })).status).toBe(200);

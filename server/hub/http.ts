@@ -582,6 +582,13 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     else sendJson(res, 405, { error: 'Método não permitido' });
     return true;
   }
+  const codexResultAction = /^\/api\/hub\/tasks\/([0-9a-f-]+)\/codex-result$/.exec(path);
+  if (codexResultAction) {
+    if (req.method === 'POST') void readJson(req).then((raw) => sendJson(res, 200,
+      store.recordCodexResult(codexResultAction[1], string(record(raw).result, 'resultado')))).catch((error) => fail(res, error));
+    else sendJson(res, 405, { error: 'Método não permitido' });
+    return true;
+  }
   const action = /^\/api\/hub\/tasks\/([0-9a-f-]+)\/(pause|resume|retry)$/.exec(path);
   if (action) {
     if (req.method !== 'POST') sendJson(res, 405, { error: 'Método não permitido' });

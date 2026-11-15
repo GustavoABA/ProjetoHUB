@@ -36,6 +36,7 @@ export interface HubTask {
   codexAttemptThread?: string;
   codexQueueId?: string;
   codexResumeWarning?: string;
+  resultRecordedBy?: 'operator';
 }
 export interface HubQuestion {
   id: string;
@@ -206,6 +207,17 @@ export class HubStore {
     if (queueId) task.codexQueueId = queueId;
     if (warning) task.codexResumeWarning = warning.slice(0, 300);
     delete task.error; delete task.nextAttemptAt;
+    this.save(); return structuredClone(task);
+  }
+
+  recordCodexResult(id: string, text: string): HubTask {
+    const task = this.state.tasks.find((item) => item.id === id);
+    if (!task || task.status !== 'sent' || !task.codexAttemptThread) throw new Error('Tarefa não aguarda resultado do Codex');
+    if (typeof text !== 'string' || !text.trim() || text.length > 50_000) throw new Error('Resultado do Codex inválido');
+    task.result = text.trim();
+    task.resultRecordedBy = 'operator';
+    task.status = 'done';
+    task.updatedAt = new Date().toISOString();
     this.save(); return structuredClone(task);
   }
 

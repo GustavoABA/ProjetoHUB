@@ -74,6 +74,19 @@ it('records a verified external action separately from a model text result', () 
   expect(() => store.recordActionResult(task.id, 'duplicado')).toThrow();
 });
 
+it('records a Codex result only after queue acceptance and persists its manual provenance', () => {
+  const file = fixture(); const store = new HubStore(file);
+  const agent = store.createAgent({ name: 'Codex', objective: 'Executar', codexThread: '12345678-1234-1234-1234-123456789012', codexHome: 'C:/codex' });
+  const task = store.createTask({ agentId: agent.id, instruction: 'Responder' });
+  expect(() => store.recordCodexResult(task.id, 'Pronto')).toThrow('não aguarda');
+  store.beginCodexDispatch(task.id, agent.codexThread!);
+  store.acceptCodexQueue(task.id, '12345678-1234-1234-1234-123456789013');
+  expect(() => store.recordCodexResult(task.id, '  ')).toThrow('inválido');
+  expect(store.recordCodexResult(task.id, '  Pronto  ')).toMatchObject({ status: 'done', result: 'Pronto', resultRecordedBy: 'operator' });
+  expect(new HubStore(file).listTasks().find((item) => item.id === task.id)?.resultRecordedBy).toBe('operator');
+  expect(() => store.recordCodexResult(task.id, 'Duplicado')).toThrow('não aguarda');
+});
+
 it('persists a selected model for an agent without a Codex session and allows clearing it', () => {
   const file = fixture();
   const store = new HubStore(file);

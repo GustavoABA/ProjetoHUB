@@ -456,3 +456,9 @@ O executor do ProjetoHUB agora chama `codex queue --resume` ao enviar uma tarefa
 
 **Ferramenta de desenvolvimento local:** o plugin Ponytail 5.3.3 de `DietrichGebert/ponytail` foi instalado no Codex desta máquina e seus três hooks foram revisados e confiados na interface do Codex. O plugin é configuração local do Codex, não dependência do ProjetoHUB; o aplicativo desktop precisa ser reiniciado para carregá-lo em novas conversas.
 
+### Registro operacional do resultado Codex
+
+O HUD permite registrar manualmente a resposta final real de uma tarefa cujo envio à fila Codex foi aceito. O operador confere a sessão Codex, cola o resultado e o serviço muda a tarefa para `done`, preservando `resultRecordedBy: operator` no estado persistido. A rota local recusa tarefas sem aceite e resultados vazios ou maiores que 50 mil caracteres. Isso permite fechar tarefas enquanto a associação automática entre resposta e ID da fila não existir. O sistema não afirma que o texto foi obtido automaticamente ou confirmado pelo CLI.
+
+**Verificação dirigida:** 37 testes de `store` e HTTP passaram; `npm run typecheck`, `npm run build` e `npm run i18n:check` terminaram com sucesso. A checagem de tradução ainda aponta entradas antigas sem tradução fora desta mudança. Não foi executada a suíte completa, conforme a prioridade atual de entregar o aplicativo.
+
