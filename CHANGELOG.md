@@ -10,6 +10,8 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+## [1.1.0-preview.1] - 2026-11-15
+
 ### Adicionado no ProjetoHUB
 
 - Aba APIs com NVIDIA, Moonshot e conexão a gateway LiteLLM por URL, chave virtual e modelo, mantendo prioridades, limites e fallback do roteador.

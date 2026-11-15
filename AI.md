@@ -470,3 +470,11 @@ Os controles existentes de chaves e modelos foram movidos para uma aba **APIs**.
 
 **Verificação dirigida:** testes de roteador, credenciais e API HTTP passaram (50 testes), incluindo requisições simuladas ao gateway, NVIDIA e Moonshot, e rejeição de URL HTTP externa. `npm run typecheck` e `npm run build` passaram. A navegação visual da nova aba e chamadas reais aos provedores não foram verificadas nesta rodada.
 
+## Atualização de 15/11/2026: primeira versão portátil para Windows
+
+A versão do ProjetoHUB foi marcada `1.1.0-preview.1` e o repositório de atualização aponta para `GustavoABA/ProjetoHUB`. `scripts/package-windows.ps1` monta um ZIP Windows x64 com `ProjetoHUB.exe`, Node.js, dependências de produção, cliente e servidor compilados, inicializador e as licenças MIT do ProjetoHUB e do Habblaud. O executável chama o inicializador PowerShell existente com o Node empacotado. Esse inicializador agora verifica atualização do build via Git apenas dentro de um checkout Git; o pacote extraído usa o build que veio no ZIP. Uma ação de GitHub vinculada à tag `v1.1.0-preview.1` cria o pacote e o publica na página de releases com as notas desta prévia.
+
+**Verificação dirigida:** o ZIP local foi gerado, extraído e usado para iniciar o servidor com dados e portas isolados. `/api/health` respondeu `ok=true`, `/api/hub/agents` e a interface responderam HTTP 200; o processo foi encerrado após o teste. A compilação do executável passou. A ação do GitHub será conferida após a publicação.
+
+**Limites:** o pacote é portátil, não um instalador MSI; requer Windows x64 com PowerShell e .NET Framework 4 para o inicializador compilado. Edge ou outro navegador deve estar disponível; Codex, Ollama, ngrok e Evolution API continuam externos. A prévia não afirma que todos os fluxos externos foram validados. O inicializador `.exe` em si não foi aberto no teste de serviço para evitar iniciar uma janela de navegador na sessão do usuário.
+

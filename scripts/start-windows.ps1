@@ -50,7 +50,7 @@ if (-not (Test-Path -LiteralPath 'node_modules/playwright-core')) {
 $needsBuild = -not (Test-Path -LiteralPath 'dist/server/index.js') -or -not (Test-Path -LiteralPath 'dist/client/index.html') -or -not (Test-Path -LiteralPath 'dist/build.json')
 if (-not $needsBuild) {
   $git = Get-Command git.exe -ErrorAction SilentlyContinue
-  if ($git) {
+  if ($git -and (Test-Path -LiteralPath '.git')) {
     $commit = (& $git.Source rev-parse HEAD 2>$null)
     $changes = (& $git.Source status --porcelain -- server client shared scripts package.json package-lock.json 2>$null)
     try {
