@@ -13,6 +13,7 @@ import { execFile } from 'node:child_process';
 import { accessSync, constants, statSync } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { tr } from '../../shared/i18n';
+import { readLocks } from '../sources/codex/files';
 
 /** Prazo de um `codex queue`. */
 export const QUEUE_TIMEOUT_MS = 20_000;
@@ -89,12 +90,15 @@ export function firstLine(s: string | undefined): string | undefined {
 }
 
 /** Roda `codex queue` com o binário dado. Nunca rejeita: falha vira `{ok: false, error}`. */
-export function createCodexQueueRunner(bin: string, opts: { env?: NodeJS.ProcessEnv; timeoutMs?: number; resume?: boolean } = {}): CodexQueueRunner {
+export function createCodexQueueRunner(bin: string, opts: { env?: NodeJS.ProcessEnv; timeoutMs?: number; resume?: boolean; requireActiveThread?: boolean } = {}): CodexQueueRunner {
   const timeoutMs = opts.timeoutMs ?? QUEUE_TIMEOUT_MS;
   return (job) =>
     new Promise<CodexQueueResult>((done) => {
       if (!THREAD_ID.test(job.thread)) return done({ ok: false, error: tr('id de thread do Codex inválido') });
       if (!isAbsolute(job.codexHome)) return done({ ok: false, error: tr('pasta da conta do Codex inválida') });
+      // shortcut: versões sem pasta de locks não permitem pré-checagem; usar estado oficial do daemon quando disponível.
+      if (opts.requireActiveThread && readLocks(job.codexHome)?.has(job.thread.toLowerCase()) === false)
+        return done({ ok: false, error: tr('Codex offline: sessão não está aberta') });
       const env = { ...(opts.env ?? process.env), CODEX_HOME: job.codexHome };
       const run = (resume: boolean, unsupported = false): void => {
         try {

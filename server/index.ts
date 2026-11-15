@@ -425,7 +425,7 @@ const ticker = setInterval(() => {
     log.warnOnce(`tick:${errMsg(err)}`, tr('Falha no relógio do escritório: {0}', [errMsg(err)]));
   }
 }, 250);
-const hubRunner = codexBin ? createCodexQueueRunner(codexBin, { resume: true }) : undefined;
+const hubRunner = codexBin ? createCodexQueueRunner(codexBin, { resume: true, requireActiveThread: true }) : undefined;
 const ensureBackup = () => {
   try {
     const latest = backupManager.list()[0];

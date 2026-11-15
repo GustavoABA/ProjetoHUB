@@ -1,14 +1,14 @@
 # ProjetoHUB — estado técnico
 
-Atualizado em 08/11/2026. Branch de desenvolvimento: `AI-Working`. Base importada: `marmottajr/habblaud` no commit `faa1a01` (versão 1.0.3). O repositório de destino tinha somente `LICENSE` no commit `3a8ed78`; esse arquivo foi preservado. A licença original do Habblaud está em `LICENSE-Habblaud`. A especificação fornecida está em `docs/projecthub/ESPECIFICACAO-MESTRE.md`. Este arquivo registra a evolução cronológica; trechos marcados como auditoria inicial descrevem aquele momento e não substituem o estado atual abaixo.
+Atualizado em 15/11/2026. Branch de desenvolvimento: `AI-Working`. Base importada: `marmottajr/habblaud` no commit `faa1a01` (versão 1.0.3). O repositório de destino tinha somente `LICENSE` no commit `3a8ed78`; esse arquivo foi preservado. A licença original do Habblaud está em `LICENSE-Habblaud`. A especificação fornecida está em `docs/projecthub/ESPECIFICACAO-MESTRE.md`. Este arquivo registra a evolução cronológica; trechos marcados como auditoria inicial descrevem aquele momento e não substituem o estado atual abaixo.
 
-## Estado atual verificado em 08/11/2026
+## Estado atual verificado em 15/11/2026
 
 | Área | Estado comprovado | Limite atual |
 | --- | --- | --- |
-| Build e testes no Windows | `npm test`: 2.064 aprovados, 20 ignorados, nenhum falhou em 196 arquivos; `npm run typecheck`, `npm run build` e teste optativo do HUD no Edge passaram | Prazo padrão de cada teste aumentado para 15 segundos após timeouts sob carga; Windows 10 especificamente não foi testado |
-| Codex e Ollama | Sessão Codex real detectada no escritório; fila Codex verificada por testes; falhas de envio Codex simuladas acionaram fallback, com geração Ollama real e resultado persistido | Timeout ambíguo não dispara fallback; execução completa de uma sessão Codex real ainda sem prova ponta a ponta |
-| Agentes e tarefas | Cadastro, subagentes, pausa, retomada, prioridade, fila persistente, concorrência limitada, navegação do HUD e personagens com estados de tarefa e aprovação reais | Resultado final de uma instrução aceita pelo Codex não é automaticamente reconciliado; personagem ainda não representa navegação automatizada por agente |
+| Build e testes no Windows | Última suíte completa: 2.064 aprovados, 20 ignorados, nenhum falhou em 196 arquivos; testes direcionados, `npm run typecheck` e `npm run build` passaram nas alterações posteriores | A suíte completa não foi repetida após a prévia 2, conforme a prioridade atual de entrega; Windows 10 especificamente não foi testado |
+| Codex e Ollama | Sessão Codex real detectada no escritório; fila Codex verificada por testes; ausência do lock de uma sessão fechada aciona fallback Ollama antes do envio; geração Ollama real e resultado persistido foram verificados | Timeout ambíguo após envio não dispara fallback; versões do Codex sem pasta de locks não permitem essa pré-checagem; execução completa de uma sessão Codex real ainda sem prova ponta a ponta |
+| Agentes e tarefas | Cadastro, subagentes, pausa, retomada, prioridade, fila persistente, concorrência limitada, navegação do HUD e personagens com estados de tarefa e aprovação reais; resposta final Codex reconciliada por ID de turno quando presente no rollout | Reconciliação ainda sem prova ponta a ponta com sessão real; personagem ainda não representa navegação automatizada por agente |
 | IA roteada | OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter e Ollama têm adaptadores, prioridades, reserva explícita, limites mensais e custos estimados; Ollama real foi verificado | Provedores externos seguem sem credenciais/teste real; custos não são fatura |
 | Vagas, navegador e candidaturas | Remotive, páginas Greenhouse e Lever cadastradas; Edge real com perfil persistente; inspeção de campos, perguntas vinculadas, preenchimento por rótulo e envio aprovado com evidência passaram em páginas locais | Nenhum envio em portal externo foi realizado; arquivos, menus e quadros internos exigem intervenção; a busca Lever agendada não teve prova ponta a ponta em empresa real |
 | WhatsApp | Evolution local diagnosticada; envio, webhook, deduplicação e avisos persistentes têm testes com respostas simuladas | Números serão configurados pelo usuário no HUD; nenhuma mensagem real ou pareamento foi testado |
@@ -487,4 +487,12 @@ Instruções enviadas à fila Codex agora carregam um ID de tarefa no fim do pro
 **Verificação dirigida:** 91 testes direcionados de fila, store, runtime, parser e observador Codex passaram; `npm run typecheck`, `npm run build` e `git diff --check` passaram. A versão foi atualizada para `1.1.0-preview.2` para gerar outro ZIP Windows após o merge em `main`.
 
 **Publicação:** `main` e `AI-Working` receberam o commit `151aeb5`. A [ação de release](https://github.com/GustavoABA/ProjetoHUB/actions/runs/43734520580) terminou com sucesso e a [release `v1.1.0-preview.2`](https://github.com/GustavoABA/ProjetoHUB/releases/tag/v1.1.0-preview.2) contém `ProjetoHUB-v1.1.0-preview.2-win-x64.zip` (61.175.921 bytes). O ZIP foi montado pela ação Windows; não foi aberto novamente nesta rodada. O fluxo Codex real ponta a ponta continua pendente de validação.
+
+## Atualização de 15/11/2026: fallback antes da fila Codex
+
+Um teste com o Codex CLI 0.169.0-alpha.11.1 confirmou que `codex queue --resume` aceita uma mensagem para uma sessão fechada, mas avisa que não pôde retomá-la quando o daemon local está ausente. Essa sessão não tinha lock em `thread-writer-locks`. Para tarefas do ProjetoHUB, o runner agora verifica a pasta de locks antes de enfileirar: se ela existe e o lock da sessão vinculada não está presente, retorna `Codex offline` e o despachante usa o Ollama configurado. Isso evita deixar uma nova tarefa parada na fila quando o Codex está fechado. Outros usos da fila Codex não mudam.
+
+**Limites:** um lock antigo após falha de processo pode indicar presença indevidamente; um Codex sem pasta de locks continua usando o comportamento anterior. Após qualquer aceite da fila, aviso de retomada ou timeout ambíguo, não há fallback automático para evitar uma segunda execução. A sessão isolada usada na observação foi excluída depois do teste; nenhuma candidatura foi criada ou enviada por ela.
+
+**Verificação dirigida:** 40 testes aprovados em `server/messages/codex.test.ts` e `server/hub/dispatcher.test.ts`, cinco testes optativos ignorados, `npm run typecheck`, `npm run build` e `git diff --check` passaram. Não foram feitas chamadas pagas a provedores nesta verificação. A versão `1.1.0-preview.3` inclui esta correção.
 

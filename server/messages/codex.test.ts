@@ -73,6 +73,15 @@ it('retries without resume only after a definite unsupported-option parse error'
   expect(resumeOptionUnsupported('Warning: message was queued, but could not resume thread')).toBe(false);
 });
 
+it('does not queue to a closed Codex thread when active-thread preflight is requested', async () => {
+  const locks = join(codexHome, 'thread-writer-locks');
+  mkdirSync(locks);
+  const run = createCodexQueueRunner(join(tmp.dir, 'nonexistent-codex'), { requireActiveThread: true });
+  expect(await run(job())).toEqual({ ok: false, error: 'Codex offline: sessão não está aberta' });
+  writeFileSync(join(locks, `${THREAD}.lock`), '');
+  expect(await run(job())).toEqual({ ok: false, error: expect.stringMatching(/^não consegui rodar o Codex/) });
+});
+
 describe('codex queue (binário falso)', () => {
   it.runIf(FAKE_CODEX_RUNS)('retorno 0 = entrou na fila; argumentos com "=" e o CODEX_HOME da conta; nunca -c/--enable/--disable/--no-daemon', async () => {
     const run = runner();

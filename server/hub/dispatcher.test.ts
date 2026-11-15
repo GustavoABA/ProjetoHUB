@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -6,6 +6,7 @@ import { HubStore } from './store';
 import { dispatchNext, dispatchWithLocalFallback, taskIdFromCodexPrompt } from './dispatcher';
 import { ModelRouter } from './router';
 import { JobStore, searchRemotive } from './jobs';
+import { createCodexQueueRunner } from '../messages/codex';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -79,6 +80,19 @@ it('uses Ollama when Codex is offline and persists a reviewable text result', as
   expect(new HubStore(join(dirs[0], 'state.json')).listTasks().find((item) => item.id === task.id)).toMatchObject({
     status: 'result_ready', result: 'Resumo local', executionProvider: 'ollama', executionModel: 'qwen2.5:1.5b',
   });
+});
+
+it('uses the local model before queueing when the linked Codex session is closed', async () => {
+  const { store } = fixture();
+  const home = join(dirs[0], 'codex-home');
+  mkdirSync(join(home, 'thread-writer-locks'), { recursive: true });
+  const agent = store.createAgent({ name: 'Codex offline', objective: 'Responder',
+    codexThread: '12345678-1234-1234-1234-123456789014', codexHome: home });
+  const task = store.createTask({ agentId: agent.id, instruction: 'Resumo' });
+  const runner = createCodexQueueRunner(join(dirs[0], 'missing-codex'), { requireActiveThread: true });
+  const result = await dispatchWithLocalFallback(store, runner, async () => ({ text: 'Resposta local', model: 'ollama' }));
+  expect(result).toMatchObject({ id: task.id, status: 'result_ready', result: 'Resposta local', executionProvider: 'ollama' });
+  expect(result?.codexQueueId).toBeUndefined();
 });
 
 it('passes only the related confirmed answer to a resumed local task after restart', async () => {

@@ -10,6 +10,10 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+## [1.1.0-preview.3] - 2026-11-15
+
+- Tarefas vinculadas a uma sessão Codex fechada usam o Ollama antes de enviar à fila quando o Codex expõe a pasta de locks de sessões ativas.
+
 ## [1.1.0-preview.2] - 2026-11-15
 
 ### Corrigido no ProjetoHUB
