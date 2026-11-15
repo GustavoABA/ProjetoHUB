@@ -34,6 +34,8 @@ export interface HubTask {
   localRetryCount?: number;
   nextAttemptAt?: string;
   codexAttemptThread?: string;
+  codexQueueId?: string;
+  codexResumeWarning?: string;
 }
 export interface HubQuestion {
   id: string;
@@ -192,6 +194,17 @@ export class HubStore {
     task.status = 'dispatching';
     task.codexAttemptThread = thread;
     task.updatedAt = new Date().toISOString();
+    delete task.error; delete task.nextAttemptAt; delete task.codexQueueId; delete task.codexResumeWarning;
+    this.save(); return structuredClone(task);
+  }
+
+  acceptCodexQueue(id: string, queueId?: string, warning?: string): HubTask {
+    const task = this.state.tasks.find((item) => item.id === id);
+    if (!task || task.status !== 'dispatching' || !task.codexAttemptThread) throw new Error('Tarefa não está sendo enviada ao Codex');
+    if (queueId && !THREAD_ID.test(queueId)) throw new Error('ID da fila Codex inválido');
+    task.status = 'sent'; task.updatedAt = new Date().toISOString();
+    if (queueId) task.codexQueueId = queueId;
+    if (warning) task.codexResumeWarning = warning.slice(0, 300);
     delete task.error; delete task.nextAttemptAt;
     this.save(); return structuredClone(task);
   }
@@ -219,7 +232,7 @@ export class HubStore {
     if (!agent || agent.status === 'ended') throw new Error('Agente encerrado não aceita retomada');
     task.status = agent.codexThread ? 'queued' : 'unassigned';
     task.updatedAt = new Date().toISOString();
-    delete task.error; delete task.nextAttemptAt; delete task.localRetryCount;
+    delete task.error; delete task.nextAttemptAt; delete task.localRetryCount; delete task.codexQueueId; delete task.codexResumeWarning;
     this.save();
     return structuredClone(task);
   }

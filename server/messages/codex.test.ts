@@ -11,7 +11,7 @@ import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { FAKE_CODEX_RUNS, fakeCodexCalls, writeFakeCodex } from '../test/fake-codex';
 import { tempDir } from '../test/fixtures';
-import { createCodexQueueRunner, findCodexBin, firstLine, queueArgs, type CodexQueueJob, type CodexQueueResult, type CodexQueueRunner } from './codex';
+import { createCodexQueueRunner, findCodexBin, firstLine, queueArgs, queueReceipt, resumeOptionUnsupported, type CodexQueueJob, type CodexQueueResult, type CodexQueueRunner } from './codex';
 import {
   ERR_CODEX_HOME,
   ERR_CODEX_NOT_FETCHED,
@@ -52,13 +52,42 @@ afterEach(() => tmp.cleanup());
 const runner = (timeoutMs?: number) => createCodexQueueRunner(bin, { env: { PATH: process.env.PATH, FAKE_CODEX_LOG: log }, timeoutMs });
 const job = (over: Partial<CodexQueueJob> = {}): CodexQueueJob => ({ codexHome, thread: THREAD, text: 'oi', ...over });
 
+it('adds optional resume only for callers that request it', () => {
+  expect(queueArgs(THREAD, 'x')).toEqual(['queue', `--thread=${THREAD}`, '--message=x']);
+  expect(queueArgs(THREAD, 'x', true)).toEqual(['queue', '--resume', `--thread=${THREAD}`, '--message=x']);
+});
+
+it('reads an actual queue receipt and resume warning without confusing them with completion', () => {
+  const queued = '01a1bba8-f0f0-7483-8984-29589aca2897';
+  const stdout = `Queued message ${queued} for thread ${THREAD}.\n`;
+  const stderr = `Warning: message was queued, but could not resume thread ${THREAD}: start a local daemon\n`;
+  expect(queueReceipt(stdout, stderr, THREAD, true)).toEqual({ queueId: queued, warning: firstLine(stderr) });
+  expect(queueReceipt(stdout, stderr, GONE_THREAD, true)).toEqual({ warning: firstLine(stderr) });
+  expect(queueReceipt(stdout, stderr, THREAD, false)).toEqual({ queueId: queued });
+  expect(queueReceipt(`Queued message ${'a'.repeat(36)} for thread ${THREAD}.`, '', THREAD, true)).toEqual({});
+});
+
+it('retries without resume only after a definite unsupported-option parse error', () => {
+  expect(resumeOptionUnsupported("error: unexpected argument '--resume' found")).toBe(true);
+  expect(resumeOptionUnsupported('Error: failed to queue session message: timeout')).toBe(false);
+  expect(resumeOptionUnsupported('Warning: message was queued, but could not resume thread')).toBe(false);
+});
+
 describe('codex queue (binário falso)', () => {
   it.runIf(FAKE_CODEX_RUNS)('retorno 0 = entrou na fila; argumentos com "=" e o CODEX_HOME da conta; nunca -c/--enable/--disable/--no-daemon', async () => {
     const run = runner();
-    expect(await run(job({ text: '-c model="x"\n--no-daemon e mais' }))).toEqual({ ok: true });
+    expect(await run(job({ text: '-c model="x"\n--no-daemon e mais' }))).toEqual({ ok: true, queueId: '01a11fb4-27d1-7450-947c-e3c97aa47303' });
     const [call] = fakeCodexCalls(log);
     expect(call).toEqual({ args: ['queue', `--thread=${THREAD}`, '--message=-c model="x"\n--no-daemon e mais'], codexHome });
     expect(queueArgs(THREAD, 'x')).toEqual(['queue', `--thread=${THREAD}`, '--message=x']);
+  });
+
+  it.runIf(FAKE_CODEX_RUNS)('falls back to plain queue only after an unsupported resume option', async () => {
+    const run = createCodexQueueRunner(bin, { resume: true,
+      env: { PATH: process.env.PATH, FAKE_CODEX_LOG: log, FAKE_CODEX_OLD_QUEUE: '1' } });
+    expect(await run(job())).toEqual({ ok: true, queueId: '01a11fb4-27d1-7450-947c-e3c97aa47303',
+      warning: 'Esta versão do Codex não suporta retomada automática pela fila.' });
+    expect(fakeCodexCalls(log).map((call) => call.args.includes('--resume'))).toEqual([true, false]);
   });
 
   it.runIf(FAKE_CODEX_RUNS)('erro: a 1ª linha do stderr; prazo esgotado; texto com NUL e thread inválido nem rodam', async () => {

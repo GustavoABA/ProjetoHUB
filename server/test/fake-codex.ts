@@ -20,7 +20,10 @@ const args = process.argv.slice(2);
 if (process.env.FAKE_CODEX_LOG) fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({ args, codexHome: process.env.CODEX_HOME }) + '\\n');
 const thread = (args.find((a) => a.startsWith('--thread=')) || '').slice('--thread='.length);
 const message = args.find((a) => a.startsWith('--message='));
-if (args[0] !== 'queue' || args.some((a) => /^(-c|--config|--enable|--disable|--no-daemon)/.test(a))) {
+if (process.env.FAKE_CODEX_OLD_QUEUE === '1' && args.includes('--resume')) {
+  process.stderr.write("error: unexpected argument '--resume' found\n");
+  process.exit(2);
+} else if (args[0] !== 'queue' || args.some((a) => /^(-c|--config|--enable|--disable|--no-daemon)/.test(a))) {
   process.stderr.write("error: unexpected argument found\\n\\nUsage: codex queue --thread <THREAD> --message <TEXT>\\n");
   process.exit(2);
 } else if (!thread || message === undefined) {

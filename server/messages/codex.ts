@@ -29,7 +29,7 @@ export interface CodexQueueJob {
   text: string;
 }
 
-export type CodexQueueResult = { ok: true } | { ok: false; error: string };
+export type CodexQueueResult = { ok: true; queueId?: string; warning?: string } | { ok: false; error: string };
 export type CodexQueueRunner = (job: CodexQueueJob) => Promise<CodexQueueResult>;
 
 function canExecute(p: string): boolean {
@@ -60,8 +60,22 @@ export function findCodexBin(env: NodeJS.ProcessEnv, isExecutable: (p: string) =
 }
 
 /** Argumentos de `codex queue` (com "=": um texto que começa com "-" nunca vira uma opção). */
-export function queueArgs(thread: string, text: string): string[] {
-  return ['queue', `--thread=${thread}`, `--message=${text}`];
+export function queueArgs(thread: string, text: string, resume = false): string[] {
+  return ['queue', ...(resume ? ['--resume'] : []), `--thread=${thread}`, `--message=${text}`];
+}
+
+/** The CLI receipt proves queue acceptance; a resume warning does not undo that acceptance. */
+export function queueReceipt(stdout: string, stderr: string, thread: string, resume: boolean): { queueId?: string; warning?: string } {
+  const line = stdout.trim().split(/\r?\n/).find((entry) => entry.startsWith('Queued message '));
+  const matched = /^Queued message ([0-9a-f-]{36}) for thread ([0-9a-f-]{36})\.$/i.exec(line ?? '');
+  const queueId = matched?.[2].toLowerCase() === thread.toLowerCase() && THREAD_ID.test(matched?.[1] ?? '') ? matched?.[1] : undefined;
+  const warning = resume && /could not resume thread/i.test(stderr) ? firstLine(stderr) : undefined;
+  return { ...(queueId ? { queueId } : {}), ...(warning ? { warning } : {}) };
+}
+
+/** A CLI argument parse error happens before any queue request; other failures must not be retried blindly. */
+export function resumeOptionUnsupported(stderr: string): boolean {
+  return /(?:unexpected argument|unknown option|unrecognized option)\s+['"]?--resume\b|argument\s+['"]--resume['"]\s+(?:which )?wasn['’]t expected/i.test(stderr);
 }
 
 /** Primeira linha não vazia (o Codex escreve o erro como "Error: ..."), cortada. */
@@ -75,24 +89,29 @@ export function firstLine(s: string | undefined): string | undefined {
 }
 
 /** Roda `codex queue` com o binário dado. Nunca rejeita: falha vira `{ok: false, error}`. */
-export function createCodexQueueRunner(bin: string, opts: { env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}): CodexQueueRunner {
+export function createCodexQueueRunner(bin: string, opts: { env?: NodeJS.ProcessEnv; timeoutMs?: number; resume?: boolean } = {}): CodexQueueRunner {
   const timeoutMs = opts.timeoutMs ?? QUEUE_TIMEOUT_MS;
   return (job) =>
     new Promise<CodexQueueResult>((done) => {
       if (!THREAD_ID.test(job.thread)) return done({ ok: false, error: tr('id de thread do Codex inválido') });
       if (!isAbsolute(job.codexHome)) return done({ ok: false, error: tr('pasta da conta do Codex inválida') });
       const env = { ...(opts.env ?? process.env), CODEX_HOME: job.codexHome };
-      try {
-        execFile(bin, queueArgs(job.thread, job.text), { env, timeout: timeoutMs, maxBuffer: 256 * 1024, windowsHide: true, encoding: 'utf8' }, (err, _stdout, stderr) => {
-          if (!err) return done({ ok: true });
-          const e = err as NodeJS.ErrnoException & { killed?: boolean };
-          if (e.killed) return done({ ok: false, error: tr('o codex queue não respondeu em {0} s (a mensagem pode ter entrado na fila mesmo assim)', [Math.round(timeoutMs / 1_000)]) });
-          if (e.code === 'ENOENT' || e.code === 'EACCES') return done({ ok: false, error: tr('não consegui rodar o Codex ({0})', [bin]) });
-          done({ ok: false, error: firstLine(stderr) ?? tr('o codex queue falhou (código {0})', [String(e.code ?? '?')]) });
-        });
-      } catch {
-        // Argumento que não dá para passar a um processo (ex.: caractere NUL no texto).
-        done({ ok: false, error: tr('a mensagem tem caracteres que não dá para mandar ao Codex') });
-      }
+      const run = (resume: boolean, unsupported = false): void => {
+        try {
+          execFile(bin, queueArgs(job.thread, job.text, resume), { env, timeout: timeoutMs, maxBuffer: 256 * 1024, windowsHide: true, encoding: 'utf8' }, (err, stdout, stderr) => {
+            if (err && resume && resumeOptionUnsupported(stderr)) return run(false, true);
+            if (!err) return done({ ok: true, ...queueReceipt(stdout, stderr, job.thread, resume),
+              ...(unsupported ? { warning: tr('Esta versão do Codex não suporta retomada automática pela fila.') } : {}) });
+            const e = err as NodeJS.ErrnoException & { killed?: boolean };
+            if (e.killed) return done({ ok: false, error: tr('o codex queue não respondeu em {0} s (a mensagem pode ter entrado na fila mesmo assim)', [Math.round(timeoutMs / 1_000)]) });
+            if (e.code === 'ENOENT' || e.code === 'EACCES') return done({ ok: false, error: tr('não consegui rodar o Codex ({0})', [bin]) });
+            done({ ok: false, error: firstLine(stderr) ?? tr('o codex queue falhou (código {0})', [String(e.code ?? '?')]) });
+          });
+        } catch {
+          // Argumento que não dá para passar a um processo (ex.: caractere NUL no texto).
+          done({ ok: false, error: tr('a mensagem tem caracteres que não dá para mandar ao Codex') });
+        }
+      };
+      run(Boolean(opts.resume));
     });
 }

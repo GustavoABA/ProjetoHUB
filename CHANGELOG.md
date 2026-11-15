@@ -12,6 +12,7 @@ do meio (0.**3**.0).
 
 ### Adicionado no ProjetoHUB
 
+- Tarefas enviadas ao Codex registram o ID da fila e avisos de retomada; o serviço tenta `codex queue --resume` quando suportado, sem tratar aceite da fila como conclusão.
 - Clique no especialista que aguarda aprovação abre diretamente a área de candidaturas para revisão e decisão.
 - Estado visual de aprovação pendente no especialista em candidaturas, derivado de candidaturas persistidas e atualizado no escritório.
 - Navegação do HUD em visões de agentes, tarefas, vagas, candidaturas, navegador e configurações, com retorno ao escritório, teclas de seta e adaptação a janelas estreitas.

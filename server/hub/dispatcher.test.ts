@@ -28,6 +28,21 @@ it('queues one real Codex instruction and records only delivery', async () => {
   expect(store.listTasks().find((t) => t.id === second.id)?.status).toBe('queued');
 });
 
+it('persists the Codex queue ID and a resume warning without claiming execution', async () => {
+  const { store, agent } = fixture();
+  const task = store.createTask({ agentId: agent.id, instruction: 'Verifique a vaga' });
+  const queueId = '01a1bba8-f0f0-7483-8984-29589aca2897';
+  await dispatchWithLocalFallback(store, async () => ({ ok: true, queueId, warning: 'could not resume thread' }),
+    async () => { throw new Error('Ollama não deve receber tarefa aceita pelo Codex'); });
+  expect(new HubStore(join(dirs[0], 'state.json')).listTasks().find((item) => item.id === task.id)).toMatchObject({
+    status: 'sent', codexQueueId: queueId, codexResumeWarning: 'could not resume thread',
+  });
+  store.setTaskStatus(task.id, 'failed', 'Conferir manualmente antes de reenviar');
+  const retried = store.retryTask(task.id);
+  expect(retried.codexQueueId).toBeUndefined();
+  expect(retried.codexResumeWarning).toBeUndefined();
+});
+
 it('dispatches higher priority first while retaining creation order for ties', async () => {
   const { store, agent } = fixture();
   const normal = store.createTask({ agentId: agent.id, instruction: 'Normal', priority: 3 });

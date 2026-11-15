@@ -4,7 +4,7 @@ import { tr } from '../../shared/i18n';
 
 type Agent = { id: string; name: string; objective: string; parentId?: string; codexThread?: string; codexHome?: string; modelId?: string; fallbackModelIds?: string[];
   monthlyAiRequestLimit?: number; monthlyAiCostLimitUsd?: number; systemKey?: string; status?: 'active' | 'paused' | 'ended' };
-type Task = { id: string; agentId: string; instruction: string; priority?: number; status: string; updatedAt?: string; error?: string; result?: string; executionProvider?: string; executionModel?: string; localRetryCount?: number; nextAttemptAt?: string };
+type Task = { id: string; agentId: string; instruction: string; priority?: number; status: string; updatedAt?: string; error?: string; result?: string; executionProvider?: string; executionModel?: string; localRetryCount?: number; nextAttemptAt?: string; codexQueueId?: string; codexResumeWarning?: string };
 type ExecutionStatus = { maxConcurrent: number; active: number };
 type Session = { name: string; sessionId: string; account: string; provider: string };
 type Source = { label: string; path: string; provider: string };
@@ -479,7 +479,7 @@ export function mountHubPanel(): void {
     const taskList = panel.querySelector('#hub-tasks')!; taskList.replaceChildren();
     for (const task of tasks.slice().reverse()) {
       if (['queued', 'unassigned', 'paused'].includes(task.status)) option(questionTasks, task.id, `${task.instruction.slice(0, 70)} · ${task.id.slice(0, 8)}`);
-      const li = document.createElement('li'); li.textContent = `${agents.find((a) => a.id === task.agentId)?.name ?? 'Agente removido'}: ${task.instruction} — prioridade ${task.priority ?? 3} · ${statusLabel[task.status] ?? task.status}${task.nextAttemptAt ? ` · nova tentativa após ${new Date(task.nextAttemptAt).toLocaleString('pt-BR')}` : ''}${task.error ? ` (${task.error})` : ''} `;
+      const li = document.createElement('li'); li.textContent = `${agents.find((a) => a.id === task.agentId)?.name ?? 'Agente removido'}: ${task.instruction} — prioridade ${task.priority ?? 3} · ${statusLabel[task.status] ?? task.status}${task.nextAttemptAt ? ` · nova tentativa após ${new Date(task.nextAttemptAt).toLocaleString('pt-BR')}` : ''}${task.codexQueueId ? ` · ${tr('Fila Codex')}: ${task.codexQueueId.slice(0, 8)}` : ''}${task.codexResumeWarning ? ` · ${tr('Retomada não confirmada')}: ${task.codexResumeWarning}` : ''}${task.error ? ` (${task.error})` : ''} `;
       if (task.status === 'queued' || task.status === 'unassigned' || task.status === 'paused') {
         const priority = document.createElement('select'); priority.setAttribute('aria-label', 'Prioridade da tarefa');
         for (let value = 1; value <= 5; value++) option(priority, String(value), `Prioridade ${value}`);

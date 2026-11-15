@@ -30,7 +30,7 @@ export async function dispatchNext(store: HubStore, runner: CodexQueueRunner, no
   store.beginCodexDispatch(task.id, agent.codexThread);
   try {
     const result = await runner({ thread: agent.codexThread, codexHome: agent.codexHome, text: instructionWithAnswers(store, task) });
-    return result.ok ? store.setTaskStatus(task.id, 'sent') : store.setTaskStatus(task.id, 'failed', result.error);
+    return result.ok ? store.acceptCodexQueue(task.id, result.queueId, result.warning) : store.setTaskStatus(task.id, 'failed', result.error);
   } catch (error) {
     return store.setTaskStatus(task.id, 'failed', error instanceof Error ? error.message : 'Falha de envio');
   }
@@ -61,7 +61,7 @@ export async function dispatchWithLocalFallback(store: HubStore, runner: CodexQu
     store.beginCodexDispatch(task.id, agent.codexThread);
     try {
       const delivery = await runner({ thread: agent.codexThread, codexHome: agent.codexHome, text: instructionWithAnswers(store, task) });
-      if (delivery.ok) return store.setTaskStatus(task.id, 'sent');
+      if (delivery.ok) return store.acceptCodexQueue(task.id, delivery.queueId, delivery.warning);
       if (!codexUnavailable(delivery.error ?? ''))
         return store.setTaskStatus(task.id, 'failed', delivery.error);
     } catch (error) {
