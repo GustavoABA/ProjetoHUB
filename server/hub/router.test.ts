@@ -25,6 +25,28 @@ it('preserves context during recoverable fallback and persists token totals', as
   expect(new ModelRouter(r.file, fetcher, { DEEPSEEK_API_KEY: 'secret-b' }).status().usage).toMatchObject({ inputTokens: 4, outputTokens: 2 });
 });
 
+it('routes a LiteLLM model through its configured gateway without exposing the key', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: 'Via gateway' } }] }), { status: 200 }));
+  const r = router(fetcher, { LITELLM_API_KEY: 'local-secret' });
+  const model = r.add({ provider: 'litellm', model: 'nvidia/modelo', priority: 1, endpoint: 'http://127.0.0.1:4000/v1' });
+  expect(model.endpoint).toBe('http://127.0.0.1:4000/v1/chat/completions');
+  expect(await r.complete([{ role: 'user', content: 'Olá' }])).toMatchObject({ provider: 'litellm', text: 'Via gateway' });
+  expect(fetcher.mock.calls[0][0]).toBe(model.endpoint);
+  expect((fetcher.mock.calls[0][1]?.headers as Record<string, string>).Authorization).toBe('Bearer local-secret');
+  expect(JSON.stringify(r.status())).not.toContain('local-secret');
+  expect(() => r.add({ provider: 'litellm', model: 'outro', priority: 2, endpoint: 'http://example.com' })).toThrow('HTTPS');
+});
+
+it('uses official Chat Completions endpoints for NVIDIA and Moonshot', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }] }), { status: 200 }));
+  const r = router(fetcher, { NVIDIA_API_KEY: 'nvidia-key', MOONSHOT_API_KEY: 'moonshot-key' });
+  r.add({ provider: 'nvidia', model: 'example/nim', priority: 1 });
+  r.add({ provider: 'moonshot', model: 'kimi', priority: 2 });
+  await r.complete([{ role: 'user', content: 'Oi' }], 'nvidia');
+  await r.complete([{ role: 'user', content: 'Oi' }], 'moonshot');
+  expect(fetcher.mock.calls.map((call) => call[0])).toEqual(['https://integrate.api.nvidia.com/v1/chat/completions', 'https://api.moonshot.ai/v1/chat/completions']);
+});
+
 it('enforces a persisted monthly request limit and falls back to another authorized model', async () => {
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }],
     usage: { prompt_tokens: 10, completion_tokens: 5 } }), { status: 200 }));

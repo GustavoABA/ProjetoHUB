@@ -53,7 +53,7 @@ it.skipIf(process.env.PROJECTHUB_UI_E2E !== '1')('navigates the real office HUD 
     await expect.poll(() => page.locator('#hub-applications').innerText()).toContain('Vaga de teste');
     await page.locator('#hub-nav [data-view="office"]').click();
     await page.locator('#projecthub-open').click();
-    await expect.poll(() => page.locator('#hub-nav [data-view]').count()).toBe(7);
+    await expect.poll(() => page.locator('#hub-nav [data-view]').count()).toBe(8);
     await page.locator('#hub-nav [data-view="jobs"]').click();
     await expect.poll(() => page.locator('#hub-job-preferences').isVisible()).toBe(true);
     await expect.poll(() => page.locator('#hub-agent-form').isVisible()).toBe(false);
@@ -64,7 +64,7 @@ it.skipIf(process.env.PROJECTHUB_UI_E2E !== '1')('navigates the real office HUD 
     expect(await page.locator('#hub-job-preferences input[name="title"]').inputValue()).toBe('Assistente');
     await page.locator('#hub-nav [data-view="browser"]').click();
     await expect.poll(() => page.locator('#hub-browser-form').isVisible()).toBe(true);
-    await page.locator('#hub-nav [data-view="settings"]').click();
+    await page.locator('#hub-nav [data-view="apis"]').click();
     await expect.poll(() => page.locator('#hub-credential-form').isVisible()).toBe(true);
     await page.locator('#hub-nav [data-view="settings"]').focus();
     await page.keyboard.press('ArrowRight');

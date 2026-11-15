@@ -564,6 +564,9 @@ it('configures model usage policies through the local HUD API', async () => {
     expect((await (await fetch(base + '/api/hub/router')).json()).models[0]).toMatchObject({ monthlyRequestLimit: 20 });
     expect((await request(`/api/hub/router/models/${model.id}`, 'PATCH', { monthlyRequestLimit: 0 })).status).toBe(400);
     expect(router.status().models[0].monthlyRequestLimit).toBe(20);
+    const gateway = await request('/api/hub/router/models', 'POST', { provider: 'litellm', model: 'kimi', priority: 2, endpoint: 'http://127.0.0.1:4000' });
+    expect(await gateway.json()).toMatchObject({ endpoint: 'http://127.0.0.1:4000/v1/chat/completions' });
+    expect((await request('/api/hub/router/models', 'POST', { provider: 'litellm', model: 'blocked', priority: 3, endpoint: 'http://example.com' })).status).toBe(400);
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 

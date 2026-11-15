@@ -22,6 +22,9 @@ it('keeps a provider key protected on disk and never returns it in status', asyn
   expect(JSON.stringify(credentials.status())).not.toContain('sk-private-test-key');
   expect(credentials.status().openai).toEqual({ configured: true, source: 'windows' });
   expect(await new ProviderCredentials(join(dir, 'credentials.json'), {}, 'win32', cipher).get('openai')).toBe('sk-private-test-key');
+  await credentials.set('litellm', 'gateway-private-key');
+  expect(readFileSync(join(dir, 'credentials.json'), 'utf8')).not.toContain('gateway-private-key');
+  expect(credentials.status().litellm.configured).toBe(true);
   credentials.clear('openai');
   expect(credentials.status().openai.configured).toBe(false);
 });

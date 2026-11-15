@@ -9,6 +9,7 @@ type State = { version: 1; keys: Partial<Record<ExternalProvider, string>> };
 const ENV: Record<ExternalProvider, string> = {
   openai: 'OPENAI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', gemini: 'GEMINI_API_KEY',
   deepseek: 'DEEPSEEK_API_KEY', openrouter: 'OPENROUTER_API_KEY',
+  nvidia: 'NVIDIA_API_KEY', moonshot: 'MOONSHOT_API_KEY', litellm: 'LITELLM_API_KEY',
 };
 const providers = Object.keys(ENV) as ExternalProvider[];
 function external(provider: Provider): asserts provider is ExternalProvider {

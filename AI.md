@@ -462,3 +462,11 @@ O HUD permite registrar manualmente a resposta final real de uma tarefa cujo env
 
 **Verificação dirigida:** 37 testes de `store` e HTTP passaram; `npm run typecheck`, `npm run build` e `npm run i18n:check` terminaram com sucesso. A checagem de tradução ainda aponta entradas antigas sem tradução fora desta mudança. Não foi executada a suíte completa, conforme a prioridade atual de entregar o aplicativo.
 
+## Atualização de 15/11/2026: aba APIs e gateway LiteLLM
+
+Os controles existentes de chaves e modelos foram movidos para uma aba **APIs**. O roteador agora aceita NVIDIA, Moonshot e um gateway LiteLLM além dos provedores anteriores. Para NVIDIA e Moonshot, cadastre a chave e o nome exato de um modelo compatível com Chat Completions. Para LiteLLM, configure provedores no [gateway oficial](https://docs.litellm.ai/docs/proxy/docker_quick_start), salve uma chave virtual na aba e cadastre o nome publicado pelo gateway, com sua URL base (`http://127.0.0.1:4000` por padrão). A chave fica protegida localmente no Windows, como as demais. A URL é validada para HTTPS ou HTTP local, sem credenciais embutidas; redirecionamentos são recusados. O roteador continua aplicando prioridades, limites, consumo e fallback aos modelos assim cadastrados. A autenticação oficial do Codex permanece separada.
+
+**Limites:** LiteLLM é um serviço Python/Docker separado, conectado por HTTP; não foi incorporado ao processo Node do Habblaud. Não há execução de código Node colado no HUD, pois isso concederia controle irrestrito ao servidor. A integração cobre o formato OpenAI Chat Completions; modelos que exigem outra API ou parâmetros próprios devem ser configurados no gateway para publicar uma interface compatível. A URL do gateway aceita raiz, `/v1` ou `/v1/chat/completions`; gateways em subcaminhos precisam de adaptação futura. Chaves e modelos reais de NVIDIA, Moonshot e LiteLLM não estão disponíveis neste ambiente, portanto ainda não há prova de chamada externa real.
+
+**Verificação dirigida:** testes de roteador, credenciais e API HTTP passaram (50 testes), incluindo requisições simuladas ao gateway, NVIDIA e Moonshot, e rejeição de URL HTTP externa. `npm run typecheck` e `npm run build` passaram. A navegação visual da nova aba e chamadas reais aos provedores não foram verificadas nesta rodada.
+

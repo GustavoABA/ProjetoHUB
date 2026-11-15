@@ -245,6 +245,7 @@ export function handleHubRoute(req: IncomingMessage, res: ServerResponse, url: U
     if (action === 'models' && req.method === 'POST') void readJson(req).then((raw) => {
       const body = record(raw);
       sendJson(res, 201, router.add({ provider: string(body.provider, 'provedor') as Provider, model: string(body.model, 'modelo'), priority: Number(body.priority),
+        ...(body.endpoint === undefined ? {} : { endpoint: string(body.endpoint, 'URL do LiteLLM') }),
         ...(body.monthlyRequestLimit === undefined ? {} : { monthlyRequestLimit: optionalPolicyNumber(body.monthlyRequestLimit, 'limite de chamadas') as number }),
         ...(body.monthlyCostLimitUsd === undefined ? {} : { monthlyCostLimitUsd: optionalPolicyNumber(body.monthlyCostLimitUsd, 'limite de custo') as number }),
         ...(body.inputUsdPerMillion === undefined ? {} : { inputUsdPerMillion: optionalPolicyNumber(body.inputUsdPerMillion, 'preço de entrada') as number }),

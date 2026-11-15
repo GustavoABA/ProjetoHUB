@@ -2,7 +2,7 @@ import { tr } from '../../shared/i18n';
 
 const views = [
   ['agents', 'Agentes'], ['tasks', 'Tarefas'], ['jobs', 'Vagas'], ['applications', 'Candidaturas'],
-  ['browser', 'Navegador'], ['settings', 'Configurações'],
+  ['browser', 'Navegador'], ['apis', 'APIs'], ['settings', 'Configurações'],
 ] as const;
 type View = typeof views[number][0];
 

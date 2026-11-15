@@ -253,7 +253,7 @@ export class HubStore {
     const task = this.state.tasks.find((v) => v.id === id);
     if (!task || task.status !== 'dispatching') throw new Error('Tarefa não está em execução local');
     if (!text.trim() || text.length > 50_000 || !model.trim() || model.length > 150) throw new Error('Resultado local inválido');
-    if (!['openai', 'anthropic', 'gemini', 'deepseek', 'openrouter', 'ollama'].includes(provider)) throw new Error('Provedor de resultado inválido');
+    if (!['openai', 'anthropic', 'gemini', 'deepseek', 'openrouter', 'nvidia', 'moonshot', 'litellm', 'ollama'].includes(provider)) throw new Error('Provedor de resultado inválido');
     task.result = text;
     task.executionProvider = provider;
     task.executionModel = model;

@@ -3,9 +3,9 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname } from 'node:path';
 import type { ProviderCredentials } from './provider-credentials';
 
-export type Provider = 'openai' | 'anthropic' | 'gemini' | 'deepseek' | 'openrouter' | 'ollama';
+export type Provider = 'openai' | 'anthropic' | 'gemini' | 'deepseek' | 'openrouter' | 'nvidia' | 'moonshot' | 'litellm' | 'ollama';
 export type Message = { role: 'system' | 'user' | 'assistant'; content: string };
-export type Model = { id: string; provider: Provider; model: string; priority: number; enabled: boolean; createdAt: string;
+export type Model = { id: string; provider: Provider; model: string; priority: number; enabled: boolean; createdAt: string; endpoint?: string;
   monthlyRequestLimit?: number; monthlyCostLimitUsd?: number; inputUsdPerMillion?: number; outputUsdPerMillion?: number };
 type ModelUsage = { month: string; requests: number; inputTokens: number; outputTokens: number; estimatedCostUsd: number; unpricedRequests: number };
 type UsagePolicy = Pick<Model, 'monthlyRequestLimit' | 'monthlyCostLimitUsd' | 'inputUsdPerMillion' | 'outputUsdPerMillion'>;
@@ -20,10 +20,24 @@ const endpoints: Record<Provider, string> = {
   gemini: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
   deepseek: 'https://api.deepseek.com/chat/completions',
   openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+  nvidia: 'https://integrate.api.nvidia.com/v1/chat/completions',
+  moonshot: 'https://api.moonshot.ai/v1/chat/completions',
+  litellm: 'http://127.0.0.1:4000/v1/chat/completions',
   ollama: 'http://127.0.0.1:11434/v1/chat/completions',
 };
-const keys: Record<Provider, string | null> = { openai: 'OPENAI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', gemini: 'GEMINI_API_KEY', deepseek: 'DEEPSEEK_API_KEY', openrouter: 'OPENROUTER_API_KEY', ollama: null };
+const keys: Record<Provider, string | null> = { openai: 'OPENAI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', gemini: 'GEMINI_API_KEY', deepseek: 'DEEPSEEK_API_KEY', openrouter: 'OPENROUTER_API_KEY', nvidia: 'NVIDIA_API_KEY', moonshot: 'MOONSHOT_API_KEY', litellm: 'LITELLM_API_KEY', ollama: null };
 const providers = Object.keys(endpoints) as Provider[];
+
+function gatewayEndpoint(value: string | undefined): string {
+  const raw = value?.trim() || 'http://127.0.0.1:4000';
+  if (raw.length > 500) throw new Error('URL do LiteLLM inválida');
+  let url: URL;
+  try { url = new URL(raw); } catch { throw new Error('URL do LiteLLM inválida'); }
+  if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname))) ||
+      url.username || url.password || url.search || url.hash || !['', '/', '/v1', '/v1/', '/v1/chat/completions'].includes(url.pathname))
+    throw new Error('Use HTTPS ou HTTP local e a URL base ou /v1 do LiteLLM');
+  return `${url.origin}/v1/chat/completions`;
+}
 
 function tokenCount(value: unknown): number | null { return Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : null; }
 function emptyUsage(month: string): ModelUsage { return { month, requests: 0, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, unpricedRequests: 0 }; }
@@ -144,12 +158,14 @@ export class ModelRouter {
       return models[0] ? this.add({ provider: 'ollama', model: models[0].name, priority: 100 }) : undefined;
     } catch { return undefined; }
   }
-  add(input: { provider: Provider; model: string; priority: number; enabled?: boolean } & UsagePolicy): Model {
+  add(input: { provider: Provider; model: string; priority: number; enabled?: boolean; endpoint?: string } & UsagePolicy): Model {
     if (!providers.includes(input.provider)) throw new Error('Provedor desconhecido');
     if (typeof input.model !== 'string' || !/^[\w./:-]{1,150}$/.test(input.model)) throw new Error('Nome de modelo inválido');
     if (!Number.isSafeInteger(input.priority) || input.priority < 1 || input.priority > 1000) throw new Error('Prioridade inválida');
     if (this.state.models.some((m) => m.provider === input.provider && m.model === input.model)) throw new Error('Modelo já cadastrado');
+    if (input.endpoint !== undefined && input.provider !== 'litellm') throw new Error('URL personalizada só é aceita para LiteLLM');
     const model: Model = { id: randomUUID(), provider: input.provider, model: input.model, priority: input.priority, enabled: input.enabled ?? true, createdAt: new Date().toISOString(),
+      ...(input.provider === 'litellm' ? { endpoint: gatewayEndpoint(input.endpoint) } : {}),
       ...(input.monthlyRequestLimit === undefined ? {} : { monthlyRequestLimit: input.monthlyRequestLimit }),
       ...(input.monthlyCostLimitUsd === undefined ? {} : { monthlyCostLimitUsd: input.monthlyCostLimitUsd }),
       ...(input.inputUsdPerMillion === undefined ? {} : { inputUsdPerMillion: input.inputUsdPerMillion }),
@@ -213,7 +229,7 @@ export class ModelRouter {
       if (model.provider === 'gemini') headers['x-goog-api-client'] = 'projecthub/0.1';
       try {
         this.reserve(model, agentPolicy);
-        const response = await this.fetcher(endpoints[model.provider], { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(model.provider === 'ollama' ? 180_000 : 60_000) });
+        const response = await this.fetcher(model.provider === 'litellm' ? gatewayEndpoint(model.endpoint) : endpoints[model.provider], { method: 'POST', headers, body: JSON.stringify(body), ...(model.provider === 'litellm' ? { redirect: 'error' as const } : {}), signal: AbortSignal.timeout(model.provider === 'ollama' ? 180_000 : 60_000) });
         if (!response.ok) {
           this.state.lastError = `${model.provider}: HTTP ${response.status}`; this.save();
           if (response.status === 429 || response.status >= 500) continue;
