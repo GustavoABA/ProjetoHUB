@@ -27,6 +27,14 @@ const texts = (results: CodexLineResult[]) => results.flatMap((r) => r.activitie
 const ids = (results: CodexLineResult[]) => results.flatMap((r) => r.activities.map((a) => a.activity.id));
 
 describe('rollout do Codex: paginated', () => {
+  it('emits a prompt and final answer tied to the actual turn', () => {
+    const turn = '12345678-1234-1234-1234-123456789014';
+    const { results } = feed([R.taskStarted(turn), R.user(T, turn, 'u1', 'Responder\n\n[ProjetoHUB task_id: 12345678-1234-1234-1234-123456789013]'), R.taskComplete(turn)]);
+    const signals = results.flatMap((result) => result.signals);
+    expect(signals).toContainEqual({ type: 'userPrompt', text: 'Responder\n\n[ProjetoHUB task_id: 12345678-1234-1234-1234-123456789013]', turnId: turn });
+    expect(signals).toContainEqual({ type: 'turnEnd', aborted: false, turnId: turn, result: 'pronto' });
+  });
+
   it('conversa sai dos item_completed; contexto injetado (response_item message) fica de fora', () => {
     const at = Date.parse('2026-10-09T12:00:00Z');
     const { state, results } = feed([

@@ -87,6 +87,22 @@ it('records a Codex result only after queue acceptance and persists its manual p
   expect(() => store.recordCodexResult(task.id, 'Duplicado')).toThrow('não aguarda');
 });
 
+it('completes only the linked Codex turn and preserves completion when the queue receipt arrives later', () => {
+  const file = fixture(); const store = new HubStore(file);
+  const thread = '12345678-1234-1234-1234-123456789012';
+  const turn = '12345678-1234-1234-1234-123456789014';
+  const agent = store.createAgent({ name: 'Codex', objective: 'Executar', codexThread: thread, codexHome: 'C:/codex' });
+  const task = store.createTask({ agentId: agent.id, instruction: 'Responder' });
+  store.beginCodexDispatch(task.id, thread);
+  expect(store.linkCodexTurn(task.id, 'other-thread', turn)).toBe(false);
+  expect(store.linkCodexTurn(task.id, thread, turn)).toBe(true);
+  expect(store.completeCodexTurn(thread, '12345678-1234-1234-1234-123456789015', 'Errado')).toBeUndefined();
+  expect(store.completeCodexTurn(thread, turn, ' Pronto ')).toMatchObject({ status: 'done', result: 'Pronto', resultRecordedBy: 'codex_rollout' });
+  expect(store.acceptCodexQueue(task.id, '12345678-1234-1234-1234-123456789013')).toMatchObject({ status: 'done' });
+  expect(new HubStore(file).listTasks()[0]).toMatchObject({ status: 'done', codexTurnId: turn, result: 'Pronto' });
+  expect(store.completeCodexTurn(thread, turn, 'Duplicado')).toBeUndefined();
+});
+
 it('persists a selected model for an agent without a Codex session and allows clearing it', () => {
   const file = fixture();
   const store = new HubStore(file);

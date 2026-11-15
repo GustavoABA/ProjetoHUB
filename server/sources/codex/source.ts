@@ -102,6 +102,8 @@ export interface CodexSourceOptions {
   tailBytes?: number;
   /** Desliga o fs.watch (testes). */
   watch?: boolean;
+  onUserPrompt?: (thread: string, turnId: string | undefined, text: string) => void;
+  onTurnComplete?: (thread: string, turnId: string, result: string) => void;
 }
 
 interface CodexAccount {
@@ -631,6 +633,10 @@ export class CodexSource implements AgentSource, CodexLive {
           break;
         case 'turnEnd':
           this.decide(t, 'idle', r.at, undefined, live);
+          if (!sig.aborted && sig.turnId && sig.result) this.opts.onTurnComplete?.(t.threadId, sig.turnId, sig.result);
+          break;
+        case 'userPrompt':
+          this.opts.onUserPrompt?.(t.threadId, sig.turnId, sig.text);
           break;
         case 'progress':
           if (t.status === 'waiting') this.decide(t, 'working', r.at, undefined, live);
@@ -808,6 +814,10 @@ export class CodexSource implements AgentSource, CodexLive {
     if (agentType && /guardian/i.test(agentType)) return false;
     const acc = this.accountFor(account, input, target);
     if (!acc) return false;
+    if (event === 'UserPromptSubmit' && target === root) {
+      const prompt = str(input.prompt);
+      if (prompt) this.opts.onUserPrompt?.(root, str(input.turn_id), prompt);
+    }
     const now = this.now();
     const cwd = str(input.cwd);
     const office = this.opts.office;

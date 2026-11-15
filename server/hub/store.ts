@@ -36,7 +36,8 @@ export interface HubTask {
   codexAttemptThread?: string;
   codexQueueId?: string;
   codexResumeWarning?: string;
-  resultRecordedBy?: 'operator';
+  codexTurnId?: string;
+  resultRecordedBy?: 'operator' | 'codex_rollout';
 }
 export interface HubQuestion {
   id: string;
@@ -195,17 +196,41 @@ export class HubStore {
     task.status = 'dispatching';
     task.codexAttemptThread = thread;
     task.updatedAt = new Date().toISOString();
-    delete task.error; delete task.nextAttemptAt; delete task.codexQueueId; delete task.codexResumeWarning;
+    delete task.error; delete task.nextAttemptAt; delete task.codexQueueId; delete task.codexResumeWarning; delete task.codexTurnId;
     this.save(); return structuredClone(task);
   }
 
   acceptCodexQueue(id: string, queueId?: string, warning?: string): HubTask {
     const task = this.state.tasks.find((item) => item.id === id);
-    if (!task || task.status !== 'dispatching' || !task.codexAttemptThread) throw new Error('Tarefa não está sendo enviada ao Codex');
+    if (!task || (task.status !== 'dispatching' && !(task.status === 'done' && task.resultRecordedBy === 'codex_rollout')) || !task.codexAttemptThread)
+      throw new Error('Tarefa não está sendo enviada ao Codex');
     if (queueId && !THREAD_ID.test(queueId)) throw new Error('ID da fila Codex inválido');
-    task.status = 'sent'; task.updatedAt = new Date().toISOString();
+    if (task.status === 'dispatching') task.status = 'sent';
+    task.updatedAt = new Date().toISOString();
     if (queueId) task.codexQueueId = queueId;
     if (warning) task.codexResumeWarning = warning.slice(0, 300);
+    delete task.error; delete task.nextAttemptAt;
+    this.save(); return structuredClone(task);
+  }
+
+  linkCodexTurn(taskId: string, thread: string, turnId: string): boolean {
+    if (!THREAD_ID.test(turnId)) return false;
+    const task = this.state.tasks.find((item) => item.id === taskId);
+    if (!task || !['dispatching', 'sent'].includes(task.status) || task.codexAttemptThread !== thread ||
+        (task.codexTurnId && task.codexTurnId !== turnId)) return false;
+    if (task.codexTurnId === turnId) return true;
+    task.codexTurnId = turnId;
+    task.updatedAt = new Date().toISOString();
+    this.save(); return true;
+  }
+
+  completeCodexTurn(thread: string, turnId: string, text: string): HubTask | undefined {
+    if (!THREAD_ID.test(turnId) || typeof text !== 'string' || !text.trim() || text.length > 50_000) return undefined;
+    const task = this.state.tasks.find((item) => item.codexAttemptThread === thread && item.codexTurnId === turnId &&
+      ['dispatching', 'sent'].includes(item.status));
+    if (!task) return undefined;
+    task.result = text.trim(); task.resultRecordedBy = 'codex_rollout'; task.status = 'done';
+    task.updatedAt = new Date().toISOString();
     delete task.error; delete task.nextAttemptAt;
     this.save(); return structuredClone(task);
   }
@@ -245,6 +270,7 @@ export class HubStore {
     task.status = agent.codexThread ? 'queued' : 'unassigned';
     task.updatedAt = new Date().toISOString();
     delete task.error; delete task.nextAttemptAt; delete task.localRetryCount; delete task.codexQueueId; delete task.codexResumeWarning;
+    delete task.codexTurnId; delete task.result; delete task.resultRecordedBy;
     this.save();
     return structuredClone(task);
   }

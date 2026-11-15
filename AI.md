@@ -478,3 +478,11 @@ A versão do ProjetoHUB foi marcada `1.1.0-preview.1` e o repositório de atuali
 
 **Limites:** o pacote é portátil, não um instalador MSI; requer Windows x64 com PowerShell e .NET Framework 4 para o inicializador compilado. Edge ou outro navegador deve estar disponível; Codex, Ollama, ngrok e Evolution API continuam externos. A prévia não afirma que todos os fluxos externos foram validados. O inicializador `.exe` em si não foi aberto no teste de serviço para evitar iniciar uma janela de navegador na sessão do usuário.
 
+## Atualização de 15/11/2026: resultado Codex e preview 2
+
+Instruções enviadas à fila Codex agora carregam um ID de tarefa no fim do prompt. O observador vincula esse ID ao turno real da sessão, usando o hook `UserPromptSubmit` quando disponível e os eventos do rollout como outra fonte. Somente `task_complete` com `turn_id` correspondente e `last_agent_message` não vazio marca a tarefa como concluída e salva a resposta com origem `codex_rollout`. O vínculo e o resultado sobrevivem à reinicialização. O aceite da fila que chegar depois da conclusão preserva o estado final. O registro manual permanece disponível para turnos sem confirmação automática.
+
+**Limites:** se o hook ou o trecho relevante do rollout não estiver disponível, a tarefa continua aguardando conferência manual. O ID da fila é distinto do ID do turno. Não foi comprovado um fluxo Codex real ponta a ponta nesta rodada.
+
+**Verificação dirigida:** 91 testes direcionados de fila, store, runtime, parser e observador Codex passaram; `npm run typecheck`, `npm run build` e `git diff --check` passaram. A versão foi atualizada para `1.1.0-preview.2` para gerar outro ZIP Windows após o merge em `main`.
+

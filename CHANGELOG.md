@@ -10,6 +10,12 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+## [1.1.0-preview.2] - 2026-11-15
+
+### Corrigido no ProjetoHUB
+
+- Tarefas enviadas ao Codex podem registrar automaticamente a resposta final quando o turno correspondente é confirmado no rollout da sessão. O vínculo por tarefa e turno é persistido; tarefas sem confirmação permanecem para conferência manual.
+
 ## [1.1.0-preview.1] - 2026-11-15
 
 ### Adicionado no ProjetoHUB

@@ -60,7 +60,7 @@ import { BuildingUplink } from './world/uplink';
 import { WorldViewer } from './world/viewer';
 import { HubStore } from './hub/store';
 import { handleHubRoute } from './hub/http';
-import { dispatchWithLocalFallback } from './hub/dispatcher';
+import { dispatchWithLocalFallback, taskIdFromCodexPrompt } from './hub/dispatcher';
 import { JobStore, runScheduledSearch } from './hub/jobs';
 import { reconcileAnalysisTasks, reconcileCompatibilityTasks, runJobAction } from './hub/job-actions';
 import { reconcileQuestionTasks, runCommunicationAction } from './hub/communication-actions';
@@ -213,7 +213,18 @@ const office = new Office({
 const claude = new ClaudeWatcher({ accounts, office, inDocker: config.inDocker });
 const agents = new SourceSet([claude]);
 const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
-const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;
+const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home,
+  onUserPrompt: (thread, turnId, prompt) => {
+    const taskId = taskIdFromCodexPrompt(prompt);
+    if (!taskId || !turnId) return;
+    try { projectHub.linkCodexTurn(taskId, thread, turnId); }
+    catch (error) { log.warn(`Falha ao vincular turno Codex: ${errMsg(error)}`); }
+  },
+  onTurnComplete: (thread, turnId, result) => {
+    try { projectHub.completeCodexTurn(thread, turnId, result); }
+    catch (error) { log.warn(`Falha ao registrar resultado Codex: ${errMsg(error)}`); }
+  },
+}) : undefined;
 if (codex) agents.add(codex);
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.

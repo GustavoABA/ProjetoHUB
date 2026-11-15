@@ -22,6 +22,16 @@ function instructionWithAnswers(store: HubStore, task: HubTask): string {
     : task.instruction;
 }
 
+const TASK_MARKER = /\n\n\[ProjetoHUB task_id: ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]\s*$/i;
+export function taskIdFromCodexPrompt(prompt: string): string | undefined { return TASK_MARKER.exec(prompt)?.[1].toLowerCase(); }
+function codexInstruction(store: HubStore, task: HubTask): string {
+  return `${instructionWithAnswers(store, task)}\n\n[ProjetoHUB task_id: ${task.id}]`;
+}
+function completedDuringDispatch(store: HubStore, id: string): HubTask | undefined {
+  const task = store.listTasks().find((item) => item.id === id);
+  return task?.status === 'done' && task.resultRecordedBy === 'codex_rollout' ? task : undefined;
+}
+
 export async function dispatchNext(store: HubStore, runner: CodexQueueRunner, now = Date.now()): Promise<HubTask | undefined> {
   const task = prioritized(store).find((t) => t.status === 'queued' && due(t, now) && store.agent(t.agentId)?.status !== 'paused' && store.agent(t.agentId)?.status !== 'ended');
   if (!task) return undefined;
@@ -29,10 +39,10 @@ export async function dispatchNext(store: HubStore, runner: CodexQueueRunner, no
   if (!agent?.codexThread || !agent.codexHome) return store.setTaskStatus(task.id, 'failed', 'Sessão Codex não configurada');
   store.beginCodexDispatch(task.id, agent.codexThread);
   try {
-    const result = await runner({ thread: agent.codexThread, codexHome: agent.codexHome, text: instructionWithAnswers(store, task) });
-    return result.ok ? store.acceptCodexQueue(task.id, result.queueId, result.warning) : store.setTaskStatus(task.id, 'failed', result.error);
+    const result = await runner({ thread: agent.codexThread, codexHome: agent.codexHome, text: codexInstruction(store, task) });
+    return result.ok ? store.acceptCodexQueue(task.id, result.queueId, result.warning) : completedDuringDispatch(store, task.id) ?? store.setTaskStatus(task.id, 'failed', result.error);
   } catch (error) {
-    return store.setTaskStatus(task.id, 'failed', error instanceof Error ? error.message : 'Falha de envio');
+    return completedDuringDispatch(store, task.id) ?? store.setTaskStatus(task.id, 'failed', error instanceof Error ? error.message : 'Falha de envio');
   }
 }
 
@@ -60,11 +70,13 @@ export async function dispatchWithLocalFallback(store: HubStore, runner: CodexQu
   if (runner && agent.codexThread && agent.codexHome) {
     store.beginCodexDispatch(task.id, agent.codexThread);
     try {
-      const delivery = await runner({ thread: agent.codexThread, codexHome: agent.codexHome, text: instructionWithAnswers(store, task) });
+      const delivery = await runner({ thread: agent.codexThread, codexHome: agent.codexHome, text: codexInstruction(store, task) });
       if (delivery.ok) return store.acceptCodexQueue(task.id, delivery.queueId, delivery.warning);
+      const completed = completedDuringDispatch(store, task.id); if (completed) return completed;
       if (!codexUnavailable(delivery.error ?? ''))
         return store.setTaskStatus(task.id, 'failed', delivery.error);
     } catch (error) {
+      const completed = completedDuringDispatch(store, task.id); if (completed) return completed;
       if (!codexUnavailable(error instanceof Error ? error.message : ''))
         return store.setTaskStatus(task.id, 'failed', error instanceof Error ? error.message : 'Falha no Codex');
     }

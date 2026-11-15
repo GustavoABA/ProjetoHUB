@@ -135,6 +135,7 @@ export const FR: Readonly<Record<string, string>> = {
   "Registrar resultado verificado": "Enregistrer le résultat vérifié",
   "Cole a resposta final real do Codex após conferir a sessão. Este registro manual marcará a tarefa como concluída.": "Collez la réponse finale réelle de Codex après avoir vérifié la session. Cet enregistrement manuel marquera la tâche comme terminée.",
   "Resultado do Codex registrado manualmente": "Résultat de Codex enregistré manuellement",
+  "Resposta final confirmada no registro Codex": "Réponse finale confirmée dans le journal Codex",
   "Retomada não confirmada": "Reprise non confirmée",
   "Esta versão do Codex não suporta retomada automática pela fila.": "Cette version de Codex ne prend pas en charge la reprise automatique depuis la file.",
   "Encerrado": "Terminé",

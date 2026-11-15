@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { HubStore } from './store';
-import { dispatchNext, dispatchWithLocalFallback } from './dispatcher';
+import { dispatchNext, dispatchWithLocalFallback, taskIdFromCodexPrompt } from './dispatcher';
 import { ModelRouter } from './router';
 import { JobStore, searchRemotive } from './jobs';
 
@@ -22,7 +22,8 @@ it('queues one real Codex instruction and records only delivery', async () => {
   const second = store.createTask({ agentId: agent.id, instruction: 'Segunda' });
   const sent: string[] = [];
   await dispatchNext(store, async (job) => { sent.push(job.text); return { ok: true }; });
-  expect(sent).toEqual(['Primeira']);
+  expect(sent[0]).toContain('Primeira');
+  expect(sent.map(taskIdFromCodexPrompt)).toEqual([first.id]);
   expect(store.listTasks().find((t) => t.id === first.id)?.status).toBe('sent');
   expect(store.listTasks().find((t) => t.id === first.id)?.codexAttemptThread).toBe(agent.codexThread);
   expect(store.listTasks().find((t) => t.id === second.id)?.status).toBe('queued');
@@ -53,7 +54,7 @@ it('dispatches higher priority first while retaining creation order for ties', a
   await dispatchWithLocalFallback(store, runner, async () => ({ text: 'local', model: 'local' }));
   await dispatchWithLocalFallback(store, runner, async () => ({ text: 'local', model: 'local' }));
   await dispatchWithLocalFallback(store, runner, async () => ({ text: 'local', model: 'local' }));
-  expect(sent).toEqual(['Urgente', 'Outra urgente', 'Normal']);
+  expect(sent.map(taskIdFromCodexPrompt)).toEqual([urgent.id, nextUrgent.id, normal.id]);
   expect(store.listTasks().find((task) => task.id === normal.id)?.status).toBe('sent');
   expect(store.listTasks().find((task) => task.id === urgent.id)?.status).toBe('sent');
   expect(store.listTasks().find((task) => task.id === nextUrgent.id)?.status).toBe('sent');

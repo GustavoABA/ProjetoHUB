@@ -384,6 +384,7 @@ export interface CodexState {
   stats: AgentStats;
   /** Turno aberto (task_started sem task_complete/turn_aborted); undefined = nenhum evento de turno visto. */
   turnOpen?: boolean;
+  activeTurnId?: string;
   firstAt?: number;
   lastAt?: number;
   /** Chamadas de ferramenta ainda sem resultado (call_id → nome). */
@@ -410,7 +411,8 @@ export function applyMeta(s: CodexState, meta: RolloutMeta): void {
 /** Sinais de uma linha para quem acompanha o thread. */
 export type CodexSignal =
   | { type: 'turnStart' }
-  | { type: 'turnEnd'; aborted: boolean }
+  | { type: 'turnEnd'; aborted: boolean; turnId?: string; result?: string }
+  | { type: 'userPrompt'; text: string; turnId?: string }
   /** Algo concluiu dentro do turno (tira a espera por aprovação). */
   | { type: 'progress' }
   | { type: 'usage'; usage: AccountUsage; plan?: string }
@@ -578,20 +580,21 @@ class RolloutLineParser {
       case 'task_started':
       case 'turn_started':
         this.s.turnOpen = true;
+        this.s.activeTurnId = str(p.turn_id);
         this.out.signals.push({ type: 'turnStart' });
         return;
       case 'task_complete':
       case 'turn_complete': {
-        this.endTurn(false);
         const ms = num(p.duration_ms);
         const err = rec(p.error);
         const turn = str(p.turn_id) ?? this.autoKey();
+        this.endTurn(false, str(p.turn_id), p.error ? undefined : str(p.last_agent_message));
         if (err) this.push(SPECIAL.error(undefined, firstLine(str(err.message) ?? '')), { key: `${turn}:err`, current: false });
         this.push(SPECIAL.turnDone(ms), { key: `${turn}:done`, durationMs: ms });
         return;
       }
       case 'turn_aborted':
-        this.endTurn(true);
+        this.endTurn(true, str(p.turn_id));
         if (p.reason === 'interrupted' || p.reason === undefined) this.push(SPECIAL.interrupted(), { key: `${str(p.turn_id) ?? this.autoKey()}:int` });
         return;
       case 'token_count':
@@ -634,10 +637,11 @@ class RolloutLineParser {
     }
   }
 
-  private endTurn(aborted: boolean): void {
+  private endTurn(aborted: boolean, turnId?: string, result?: string): void {
     this.s.turnOpen = false;
+    delete this.s.activeTurnId;
     this.s.pending.clear();
-    this.out.signals.push({ type: 'turnEnd', aborted });
+    this.out.signals.push({ type: 'turnEnd', aborted, ...(turnId ? { turnId } : {}), ...(result ? { result } : {}) });
   }
 
   private progress(): void {
@@ -676,6 +680,7 @@ class RolloutLineParser {
   private prompt(raw: string, images: number, key?: string): void {
     const text = promptText(raw) || (images ? tr('[imagem]') : '');
     if (!text) return;
+    this.out.signals.push({ type: 'userPrompt', text, ...(this.s.activeTurnId ? { turnId: this.s.activeTurnId } : {}) });
     if (this.s.title === undefined) {
       this.s.title = truncate(maskSecrets(text.slice(0, 1_000)), TITLE_MAX);
       this.changed();

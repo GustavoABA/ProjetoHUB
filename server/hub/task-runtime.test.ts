@@ -42,7 +42,7 @@ it('claims separate tasks before awaiting I/O so concurrent ticks cannot send on
   }, async () => ({ text: 'local', model: 'local' })));
   runtime.configure(2);
   const first = runtime.tick(); const second = runtime.tick(); const third = runtime.tick();
-  expect(sent).toEqual(['Primeira', 'Segunda']);
+  expect(sent.map((text) => text.split('\n\n')[0])).toEqual(['Primeira', 'Segunda']);
   expect(runtime.status().active).toBe(2);
   await third;
   gates.forEach((resolve) => resolve()); await Promise.all([first, second]);

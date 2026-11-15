@@ -135,6 +135,7 @@ export const ES: Readonly<Record<string, string>> = {
   "Registrar resultado verificado": "Registrar resultado verificado",
   "Cole a resposta final real do Codex após conferir a sessão. Este registro manual marcará a tarefa como concluída.": "Pegue la respuesta final real de Codex después de revisar la sesión. Este registro manual marcará la tarea como completada.",
   "Resultado do Codex registrado manualmente": "Resultado de Codex registrado manualmente",
+  "Resposta final confirmada no registro Codex": "Respuesta final confirmada en el registro de Codex",
   "Retomada não confirmada": "Reanudación no confirmada",
   "Esta versão do Codex não suporta retomada automática pela fila.": "Esta versión de Codex no admite la reanudación automática desde la cola.",
   "Encerrado": "Finalizado",
