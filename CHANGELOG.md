@@ -10,6 +10,8 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+- O aviso de retomada não confirmada desaparece quando o turno Codex vinculado é observado ou a tarefa é concluída; comprovantes atrasados da fila não reabrem o aviso.
+
 ## [1.1.0-preview.3] - 2026-11-15
 
 - Tarefas vinculadas a uma sessão Codex fechada usam o Ollama antes de enviar à fila quando o Codex expõe a pasta de locks de sessões ativas.

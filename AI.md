@@ -504,3 +504,9 @@ Com dados isolados em `%TEMP%`, foi iniciada uma sessão interativa real do Code
 
 **Limites deste ensaio:** foi uma tarefa textual curta, sem ferramentas, subagentes, candidatura, reinício com tarefa em andamento ou interação via HUD. O aviso de `--resume` não impediu o consumo pela sessão já aberta. Uma sessão fechada ainda depende do pré-teste de locks e da disponibilidade do Ollama configurado. Nenhuma vaga ou candidatura real foi alterada.
 
+## Atualização de 15/11/2026: aviso de retomada após execução confirmada
+
+O ensaio real também mostrou que `codexResumeWarning` continuava no estado mesmo depois de `status=done`. O store agora remove esse aviso quando vincula o turno ou registra o resultado, e não o adiciona se um comprovante da fila chegar depois. A confirmação manual também remove o aviso. O ID da fila e a origem do resultado permanecem para auditoria.
+
+**Verificação dirigida:** 43 testes de store e dispatcher passaram; `npm run typecheck` e `git diff --check` passaram. A correção está no código após a release `v1.1.0-preview.3`; o ZIP publicado dessa versão ainda pode mostrar o aviso antigo.
+

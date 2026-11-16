@@ -208,7 +208,7 @@ export class HubStore {
     if (task.status === 'dispatching') task.status = 'sent';
     task.updatedAt = new Date().toISOString();
     if (queueId) task.codexQueueId = queueId;
-    if (warning) task.codexResumeWarning = warning.slice(0, 300);
+    if (warning && !task.codexTurnId && task.status !== 'done') task.codexResumeWarning = warning.slice(0, 300);
     delete task.error; delete task.nextAttemptAt;
     this.save(); return structuredClone(task);
   }
@@ -218,8 +218,9 @@ export class HubStore {
     const task = this.state.tasks.find((item) => item.id === taskId);
     if (!task || !['dispatching', 'sent'].includes(task.status) || task.codexAttemptThread !== thread ||
         (task.codexTurnId && task.codexTurnId !== turnId)) return false;
-    if (task.codexTurnId === turnId) return true;
+    if (task.codexTurnId === turnId && !task.codexResumeWarning) return true;
     task.codexTurnId = turnId;
+    delete task.codexResumeWarning;
     task.updatedAt = new Date().toISOString();
     this.save(); return true;
   }
@@ -231,7 +232,7 @@ export class HubStore {
     if (!task) return undefined;
     task.result = text.trim(); task.resultRecordedBy = 'codex_rollout'; task.status = 'done';
     task.updatedAt = new Date().toISOString();
-    delete task.error; delete task.nextAttemptAt;
+    delete task.error; delete task.nextAttemptAt; delete task.codexResumeWarning;
     this.save(); return structuredClone(task);
   }
 
@@ -243,6 +244,7 @@ export class HubStore {
     task.resultRecordedBy = 'operator';
     task.status = 'done';
     task.updatedAt = new Date().toISOString();
+    delete task.codexResumeWarning;
     this.save(); return structuredClone(task);
   }
 
